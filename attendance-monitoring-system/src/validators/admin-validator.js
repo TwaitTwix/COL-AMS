@@ -10,6 +10,7 @@ export const createStudentSchema = z.object({
   student_number: z.string().trim().min(1).max(40),
   institution: z.enum(['MCNP','ISAP']).nullable().optional(),
   college: z.string().trim().min(1).max(100).nullable().optional(),
+  course: z.string().trim().min(1).max(160).nullable().optional(),
 });
 
 export const studentArchiveSchema = z.object({ archived: z.boolean() });

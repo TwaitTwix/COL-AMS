@@ -66,7 +66,7 @@ async function ensureStudent(demo) {
   if (existing) {
     const { error: updateError } = await supabase
       .from("students")
-      .update({ name: demo.full_name, institution: 'MCNP', college: 'IT', archived_at: null })
+      .update({ name: demo.full_name, institution: 'ISAP', college: 'College of Information Technology and Engineering', course: 'Bachelor of Science in Information Technology', archived_at: null })
       .eq("id", existing.id);
     if (updateError) throw updateError;
     return existing;
@@ -78,8 +78,9 @@ async function ensureStudent(demo) {
       name: demo.full_name,
       student_number: demo.student_number,
       student_token: randomBytes(32).toString("base64url"),
-      institution: 'MCNP',
-      college: 'IT',
+      institution: 'ISAP',
+      college: 'College of Information Technology and Engineering',
+      course: 'Bachelor of Science in Information Technology',
     })
     .select("id, student_token")
     .single();
@@ -104,8 +105,9 @@ async function main() {
         student_id: student?.id || null,
         approval_status: 'approved',
         personal_id: demo.student_number,
-        institution: demo.student_number ? 'MCNP' : null,
-        college: demo.student_number ? 'IT' : null,
+        institution: demo.student_number ? 'ISAP' : null,
+        college: demo.student_number ? 'College of Information Technology and Engineering' : null,
+        course: demo.student_number ? 'Bachelor of Science in Information Technology' : null,
       }, { onConflict: "user_id" });
     if (profileError) throw profileError;
 

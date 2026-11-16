@@ -4,24 +4,40 @@ import { supabase } from '../config/supabase.js';
 import { validate } from '../utils/validate.js';
 import { recordSession, createEventQr, verifyEventQr } from '../services/security-service.js';
 import { writeAuditLog } from '../services/audit-service.js';
+import { validateAcademicSelection } from '../services/academic-service.js';
 
 export const uuid = z.string().uuid();
 const fail = (status, message) => Object.assign(new Error(message), { status });
 function check(error) { if (error) { console.error('Portal database operation failed:', error.message); throw fail(503, 'Unable to load or save this request. Please retry.'); } }
 export async function listColleges(_req, res, next) {
-  try { const { data, error } = await supabase.from('colleges').select('institution,name').order('name'); check(error); res.json({ colleges: data }); } catch(e) { next(e); }
+  try {
+    const [parents,programs]=await Promise.all([
+      supabase.from('colleges').select('institution,name,abbreviation').eq('active',true).order('name'),
+      supabase.from('courses').select('institution,college,name').eq('active',true).order('name'),
+    ]);check(parents.error);check(programs.error);
+    res.json({colleges:parents.data.map(college=>({...college,courses:programs.data.filter(course=>course.institution===college.institution&&course.college===college.name).map(course=>course.name)}))});
+  } catch(e) { next(e); }
 }
 export async function createCollege(req, res, next) {
   try {
     const input=validate(z.object({ institution:z.enum(['MCNP','ISAP']),name:z.string().trim().min(1).max(100) }),req.body);
-    const {error}=await supabase.from('colleges').upsert(input);check(error);
+    const {error}=await supabase.from('colleges').upsert({...input,active:true});check(error);
     await writeAuditLog(req.authUser.id,'college.created','college',input.name,input);res.status(201).json({college:input});
   } catch(e){next(e);}
+}
+export async function createCourse(req,res,next){
+  try{
+    const input=validate(z.object({institution:z.enum(['MCNP','ISAP']),college:z.string().trim().min(1).max(100),name:z.string().trim().min(1).max(160)}),req.body);
+    await validateAcademicSelection(input);
+    const {error}=await supabase.from('courses').upsert({...input,active:true});check(error);
+    await writeAuditLog(req.authUser.id,'course.created','course',input.name,{institution:input.institution,college:input.college});
+    res.status(201).json({course:input});
+  }catch(e){next(e);}
 }
 export async function dashboard(req,res,next) {
   try {
     const {data:events,error}=await supabase.from('events').select('id,name,starts_at,ends_at,radius_meters,institution,college').is('archived_at',null).gte('ends_at',new Date().toISOString()).order('starts_at').limit(100);check(error);
-    const {data:student,error:studentError}=req.userProfile.student_id ? await supabase.from('students').select('institution,college,archived_at').eq('id',req.userProfile.student_id).maybeSingle() : {data:null};check(studentError);
+    const {data:student,error:studentError}=req.userProfile.student_id ? await supabase.from('students').select('institution,college,course,archived_at').eq('id',req.userProfile.student_id).maybeSingle() : {data:null};check(studentError);
     const {data:attendance,error:attendanceError}=req.userProfile.student_id ? await supabase.from('attendance_logs').select('id,event_id,status,checked_in_at,review_note,distance_from_venue_meters,events(name)').eq('student_id',req.userProfile.student_id).order('checked_in_at',{ascending:false}).limit(100) : {data:[]};check(attendanceError);
     const now=Date.now();
     res.json({profile:req.userProfile,student,server_time:new Date(now).toISOString(),events:events.map(e=>({...e,opens_at:new Date(Date.parse(e.starts_at)-3600000).toISOString(),is_open:now>=Date.parse(e.starts_at)-3600000,eligible:!student?.archived_at&&(!e.institution||e.institution===student?.institution)&&(!e.college||e.college===student?.college)})),attendance});
@@ -80,8 +96,8 @@ export async function reviewRegistration(req,res,next){
 }
 export async function completeRegistration(req,res,next){
   try{
-    const input=validate(z.object({full_name:z.string().trim().min(1).max(120),personal_id:z.string().trim().min(1).max(40),institution:z.enum(['MCNP','ISAP']),college:z.string().trim().min(1).max(100)}),req.body);
-    const {data:college,error:collegeError}=await supabase.from('colleges').select('name').eq('institution',input.institution).eq('name',input.college).maybeSingle();check(collegeError);if(!college)throw fail(400,'Choose a registered institution and college');
+    const input=validate(z.object({full_name:z.string().trim().min(1).max(120),personal_id:z.string().trim().min(1).max(40),institution:z.enum(['MCNP','ISAP']),college:z.string().trim().min(1).max(100),course:z.string().trim().min(1).max(160)}),req.body);
+    await validateAcademicSelection(input,{requireCourse:true});
     const {data,error}=await supabase.from('user_profiles').update(input).eq('user_id',req.authUser.id).eq('approval_status','pending').eq('role','pending').select('user_id').maybeSingle();
     if(error?.code==='23505')throw fail(409,'This personal ID is already registered');check(error);if(!data)throw fail(409,'Only a pending registration can be completed');
     res.json({message:'Details saved. Awaiting administrator approval.'});

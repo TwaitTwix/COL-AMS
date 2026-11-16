@@ -5,7 +5,7 @@ do $$
 declare uid uuid:=gen_random_uuid(); other_uid uuid:=gen_random_uuid(); eid uuid:=gen_random_uuid();
 begin
   insert into auth.users(id,email,email_confirmed_at) values(uid,uid||'@test.invalid',now()),(other_uid,other_uid||'@test.invalid',now());
-  insert into public.user_profiles(user_id,full_name,personal_id,institution,college) values(uid,'Workflow fixture',uid::text,'MCNP','IT'),(other_uid,'Shared device fixture',other_uid::text,'MCNP','IT');
+  insert into public.user_profiles(user_id,full_name,personal_id,institution,college,course) values(uid,'Workflow fixture',uid::text,'ISAP','College of Information Technology and Engineering','Bachelor of Science in Information Technology'),(other_uid,'Shared device fixture',other_uid::text,'ISAP','College of Information Technology and Engineering','Bachelor of Science in Information Technology');
   insert into public.events(id,name,latitude,longitude,radius_meters,starts_at,ends_at) values(eid,'Workflow fixture',17.6,121.7,100,now()+interval '30 minutes',now()+interval '2 hours');
   perform set_config('test.uid',uid::text,true);perform set_config('test.other_uid',other_uid::text,true);perform set_config('test.eid',eid::text,true);
 end $$;
@@ -41,7 +41,7 @@ begin
   result:=public.submit_event_attendance(other_uid,eid,version,'device-a',17.6,121.7,5);
   if result->>'status'<>'pending_review' then raise exception 'TEST FAILED: shared attendance not held';end if;
   result:=public.event_attendance_statistics(eid);
-  if not exists(select 1 from jsonb_array_elements(result) r where r->>'institution'='MCNP' and r->>'college' is null and (r->>'attended')::integer=1) then raise exception 'TEST FAILED: pending attendance included in statistics';end if;
+  if not exists(select 1 from jsonb_array_elements(result) r where r->>'institution'='ISAP' and r->>'level'='institution' and (r->>'attended')::integer=1) then raise exception 'TEST FAILED: pending attendance included in statistics';end if;
   update public.events set starts_at=now()+interval '3 hours',ends_at=now()+interval '4 hours' where id=eid;
   caught:=false;begin perform public.submit_event_attendance(other_uid,eid,version,'device-a',17.6,121.7,5);exception when raise_exception then caught:=true;end;
   if not caught then raise exception 'TEST FAILED: early closed event accepted';end if;

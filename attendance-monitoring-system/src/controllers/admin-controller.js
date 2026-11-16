@@ -10,16 +10,13 @@ import {
 } from "../validators/admin-validator.js";
 import { writeAuditLog } from "../services/audit-service.js";
 import { uuid } from './portal-controller.js';
+import { validateAcademicSelection } from '../services/academic-service.js';
 
 function httpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 async function validateAffiliation(input){
-  if(!input.institution&&!input.college)return;
-  if(!input.institution||!input.college)throw httpError(400,'Choose both institution and college, or leave both unrestricted');
-  const {data,error}=await supabase.from('colleges').select('name').eq('institution',input.institution).eq('name',input.college).maybeSingle();
-  if(error)throw error;
-  if(!data)throw httpError(400,'College is not registered for this institution');
+  await validateAcademicSelection(input);
 }
 async function validateEventAffiliation(input){
   if(input.college)await validateAffiliation(input);
@@ -29,7 +26,7 @@ export async function listManagedUsers(_req, res, next) {
   try {
     const { data, error } = await supabase
       .from("user_profiles")
-      .select("user_id, email, full_name, role, student_id, created_at,personal_id,institution,college,approval_status,penalty_points,review_note")
+      .select("user_id, email, full_name, role, student_id, created_at,personal_id,institution,college,course,approval_status,penalty_points,review_note")
       .order("created_at", { ascending: false });
     if (error) throw error;
     res.status(200).json({ users: data || [] });
@@ -94,7 +91,7 @@ export async function listStudents(_req, res, next) {
   try {
     const { data, error } = await supabase
       .from("students")
-      .select("id, name, student_number, created_at, archived_at,institution,college")
+      .select("id, name, student_number, created_at, archived_at,institution,college,course")
       .order("name", { ascending: true });
     if (error) throw error;
     res.status(200).json({ students: data || [] });

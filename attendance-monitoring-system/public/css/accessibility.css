@@ -9,6 +9,7 @@
   --touch-target: 3rem;
 }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.academic-description { display: block; max-width: 100%; color: var(--muted); font-size: .875rem; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; letter-spacing: 0; font-weight: 400; }
 body { min-width: 0; font-size: var(--text-body); line-height: 1.6; }
 button, input, select, textarea { font: inherit; }
 button, a, input, select { touch-action: manipulation; }

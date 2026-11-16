@@ -7,7 +7,7 @@ function sendError(res, status, message) {
 async function loadOrCreateProfile(user) {
   const { data: existing, error: selectError } = await supabase
     .from("user_profiles")
-    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points")
+    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course")
     .eq("user_id", user.id)
     .maybeSingle();
   if (selectError) throw selectError;
@@ -18,7 +18,7 @@ async function loadOrCreateProfile(user) {
         .from("user_profiles")
         .update({ email })
         .eq("user_id", user.id)
-        .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points")
+        .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course")
         .single();
       if (updateError) throw updateError;
       return updated;
@@ -36,7 +36,7 @@ async function loadOrCreateProfile(user) {
 
   const { data: created, error: reloadError } = await supabase
     .from("user_profiles")
-    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points")
+    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course")
     .eq("user_id", user.id)
     .single();
   if (reloadError) throw reloadError;

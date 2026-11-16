@@ -4,6 +4,8 @@ Node.js / Express, Supabase Auth and Postgres, private Storage, and a responsive
 
 Live app: https://col-ams.vercel.app. Hosting details and remaining email redirect setup are in [DEPLOYMENT.md](DEPLOYMENT.md). Use Node.js 24.x for local development.
 
+The ISAP/MCNP institution → college → course mappings and handling of legacy records are documented in [ACADEMIC_CATALOG.md](ACADEMIC_CATALOG.md).
+
 ## Start locally
 
 From this folder run `npm install` once, copy `.env.example` to `.env` only if no local configuration exists, then run `npm run local`. You can also double-click `../Start-Attendance-System.cmd`. Keep the terminal open. The local app defaults to `http://127.0.0.1:3001`.
@@ -70,7 +72,7 @@ For an opt-in live API check with existing demo accounts, set `TEST_BASE_URL=htt
 
 ## Demo accounts
 
-`npm run seed:demo` creates or resets student, student officer, and COL officer demo accounts. It assigns demo students to MCNP / IT. Every run resets demo passwords. Credentials are stored only in the ignored `.demo-credentials.json`. Do not use these accounts in production or run the seeder expecting to reset the main administrator.
+`npm run seed:demo` creates or resets student, student officer, and COL officer demo accounts. It assigns demo students to ISAP / CITE / Bachelor of Science in Information Technology. Every run resets demo passwords. Credentials are stored only in the ignored `.demo-credentials.json`. Do not use these accounts in production or run the seeder expecting to reset the main administrator.
 
 ## Deployment tasks
 

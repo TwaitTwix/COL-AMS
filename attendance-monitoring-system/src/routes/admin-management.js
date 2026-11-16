@@ -16,7 +16,7 @@ import { requireRoles, ADMIN_ROLES } from "../middleware/authenticate-user.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { validate } from '../utils/validate.js';
 import { z } from 'zod';
-import { createCollege,eventQr,rotateQr,eventStatistics,reviewRegistration,securityDashboard,reviewAttendance,reviewDevice,readNotification,listNotifications } from '../controllers/portal-controller.js';
+import { createCollege,createCourse,eventQr,rotateQr,eventStatistics,reviewRegistration,securityDashboard,reviewAttendance,reviewDevice,readNotification,listNotifications } from '../controllers/portal-controller.js';
 
 const router = Router();
 for(const name of ['userId','studentId','eventId','attendanceId','incidentId','notificationId'])router.param(name,(_req,_res,next,value)=>{
@@ -32,6 +32,7 @@ router.get("/audit-logs", ...officerAccess, listAuditLogs);
 router.get('/security',...officerAccess,securityDashboard);
 router.get('/notifications',...officerAccess,listNotifications);
 router.post('/colleges',...officerAccess,createCollege);
+router.post('/courses',...officerAccess,createCourse);
 router.patch('/users/:userId/verification',...officerAccess,reviewRegistration);
 router.get('/events/:eventId/qr',...officerAccess,eventQr);
 router.post('/events/:eventId/qr/rotate',...officerAccess,rotateQr);

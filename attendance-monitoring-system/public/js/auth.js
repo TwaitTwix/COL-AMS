@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.119.0';
 import { requireAuthClient } from './auth-guard.js';
+import { bindAcademicSelects } from './academic-selects.js';
 
 const panel=document.querySelector('#auth-panel');
 const workspace=document.querySelector('#workspace');
@@ -16,8 +17,8 @@ let manuallySignedOut=false;
 let failedAttempts=Number(sessionStorage.getItem('col-failed-attempts')||0);
 let collegeCatalog=[];
 const completion=document.querySelector('#profile-completion-form');
-const populateCompletion=()=>completion.elements.college.replaceChildren(...collegeCatalog.filter(c=>c.institution===completion.elements.institution.value).map(c=>new Option(c.name,c.name)));
-completion.elements.institution.addEventListener('change',populateCompletion);
+const signupSelection=bindAcademicSelects(forms.signup,()=>collegeCatalog);
+const completionSelection=bindAcademicSelects(completion,()=>collegeCatalog);
 forgot.hidden=failedAttempts<3;
 function note(text,state='info'){message.textContent=text;message.dataset.state=state;message.hidden=!text;}
 function view(name,text=''){
@@ -47,8 +48,8 @@ async function verify(session){
   if(data.profile.approval_status!=='approved'||data.profile.role==='pending'){
     closeWorkspace();refresh.hidden=false;
     view('signin',data.profile.approval_status==='rejected'?'Registration declined. '+(data.profile.review_note||'Contact an administrator.'):'Email verified. Your personal ID is awaiting administrator approval.');
-    if(data.profile.approval_status==='pending'&&(!data.profile.personal_id||!data.profile.institution||!data.profile.college)){
-      forms.signin.hidden=true;completion.hidden=false;completion.elements.full_name.value=data.profile.full_name||'';completion.elements.personal_id.value=data.profile.personal_id||'';completion.elements.institution.value=data.profile.institution||'MCNP';populateCompletion();
+    if(data.profile.approval_status==='pending'&&(!data.profile.personal_id||!data.profile.institution||!data.profile.college||!data.profile.course)){
+      forms.signin.hidden=true;completion.hidden=false;completion.elements.full_name.value=data.profile.full_name||'';completion.elements.personal_id.value=data.profile.personal_id||'';completionSelection.set(data.profile);
     }
     return;
   }
@@ -137,10 +138,7 @@ async function initialize(){
       if(['INITIAL_SESSION','SIGNED_IN','TOKEN_REFRESHED','USER_UPDATED'].includes(event))setTimeout(()=>verify(session).catch(e=>note(e.message,'error')),0);
     });
     const collegesResponse=await fetch('/api/auth/colleges');const {colleges=[]}=await collegesResponse.json();
-    collegeCatalog=colleges;populateCompletion();
-    const institution=forms.signup.elements.institution;const college=forms.signup.elements.college;
-    const renderColleges=()=>{college.replaceChildren(...colleges.filter(c=>c.institution===institution.value).map(c=>new Option(c.name,c.name)));};
-    institution.addEventListener('change',renderColleges);renderColleges();
+    collegeCatalog=colleges;completionSelection.refresh();signupSelection.refresh();
   }catch(e){signedOut(e.message||'Unable to load sign-in. Refresh and retry.');}
 }
 initialize();
