@@ -1,0 +1,146 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.119.0';
+import { requireAuthClient } from './auth-guard.js';
+
+const panel=document.querySelector('#auth-panel');
+const workspace=document.querySelector('#workspace');
+const badge=document.querySelector('#account-badge');
+const signout=document.querySelector('#sign-out');
+const message=document.querySelector('#auth-message');
+const forgot=document.querySelector('#forgot-password');
+const refresh=document.querySelector('#refresh-approval');
+const forms=Object.fromEntries(['signin','signup','recovery','update-password'].map(name=>[name,document.querySelector('#'+name+'-form')]));
+let client=null;
+let revision=0;
+let recovery=new URLSearchParams(location.hash.slice(1)).get('type')==='recovery';
+let manuallySignedOut=false;
+let failedAttempts=Number(sessionStorage.getItem('col-failed-attempts')||0);
+let collegeCatalog=[];
+const completion=document.querySelector('#profile-completion-form');
+const populateCompletion=()=>completion.elements.college.replaceChildren(...collegeCatalog.filter(c=>c.institution===completion.elements.institution.value).map(c=>new Option(c.name,c.name)));
+completion.elements.institution.addEventListener('change',populateCompletion);
+forgot.hidden=failedAttempts<3;
+function note(text,state='info'){message.textContent=text;message.dataset.state=state;message.hidden=!text;}
+function view(name,text=''){
+  completion.hidden=true;
+  for(const [key,form] of Object.entries(forms))form.hidden=key!==name;
+  document.querySelector('#auth-tabs').hidden=['recovery','update-password'].includes(name);
+  document.querySelectorAll('[data-auth-mode]').forEach(b=>b.classList.toggle('active',b.dataset.authMode===name));
+  const copy={signin:['Welcome back.','Sign in to your campus attendance account.'],signup:['Your campus. Your account.','Register with your personal ID and a working email.'],recovery:['Forgot your password?','We will send a secure password reset link.'],'update-password':['Choose a new password.','Finish your password recovery.']}[name];
+  document.querySelector('#auth-title').textContent=copy[0];document.querySelector('#auth-copy').textContent=copy[1];note(text);
+}
+function closeWorkspace(){workspace.hidden=true;panel.hidden=false;window.dispatchEvent(new CustomEvent('app:session',{detail:null}));}
+function signedOut(text=''){revision++;closeWorkspace();badge.hidden=true;signout.hidden=true;refresh.hidden=true;view('signin',text);}
+async function verify(session){
+  if(manuallySignedOut)return;
+  const requestRevision=++revision;
+  if(!session){signedOut();return;}
+  if(recovery){closeWorkspace();view('update-password');return;}
+  const response=await fetch('/api/auth/me',{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'});
+  const data=await response.json();
+  if(requestRevision!==revision)return;
+  if(!response.ok){
+    closeWorkspace();view('signin',data.error?.message||'Unable to verify your account.');signout.hidden=false;
+    return;
+  }
+  badge.hidden=false;badge.textContent=(data.profile.full_name||data.user.email)+' · '+data.profile.role.replaceAll('_',' ');
+  signout.hidden=false;
+  if(data.profile.approval_status!=='approved'||data.profile.role==='pending'){
+    closeWorkspace();refresh.hidden=false;
+    view('signin',data.profile.approval_status==='rejected'?'Registration declined. '+(data.profile.review_note||'Contact an administrator.'):'Email verified. Your personal ID is awaiting administrator approval.');
+    if(data.profile.approval_status==='pending'&&(!data.profile.personal_id||!data.profile.institution||!data.profile.college)){
+      forms.signin.hidden=true;completion.hidden=false;completion.elements.full_name.value=data.profile.full_name||'';completion.elements.personal_id.value=data.profile.personal_id||'';completion.elements.institution.value=data.profile.institution||'MCNP';populateCompletion();
+    }
+    return;
+  }
+  refresh.hidden=true;panel.hidden=true;workspace.hidden=false;
+  window.dispatchEvent(new CustomEvent('app:session',{detail:{accessToken:session.access_token,role:data.profile.role,user:data.user,profile:data.profile,device:data.device}}));
+}
+document.querySelectorAll('[data-auth-mode]').forEach(button=>button.addEventListener('click',()=>view(button.dataset.authMode)));
+forgot.addEventListener('click',()=>view('recovery'));
+refresh.addEventListener('click',async()=>{try{const {data}=await client.auth.getSession();await verify(data.session);}catch(e){note(e.message,'error');}});
+function handle(form,action){
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();const auth=requireAuthClient(client,note);if(!auth)return;
+    const button=form.querySelector('[type=submit]');button.disabled=true;
+    try{await action(new FormData(form),auth);}catch(e){note(e.message||'Request failed. Please retry.','error');}finally{button.disabled=false;}
+  });
+}
+handle(forms.signin,async(data,auth)=>{
+  manuallySignedOut=false;
+  note('Signing in…');
+  const {error}=await auth.auth.signInWithPassword({email:String(data.get('email')).trim(),password:String(data.get('password'))});
+  if(error){
+    // Only credential failures reveal recovery; network errors do not count.
+    if(error.status===400||error.code==='invalid_credentials'){
+      failedAttempts++;sessionStorage.setItem('col-failed-attempts',String(failedAttempts));forgot.hidden=failedAttempts<3;
+    }
+    throw error;
+  }
+  failedAttempts=0;sessionStorage.removeItem('col-failed-attempts');forgot.hidden=true;
+});
+handle(forms.signup,async data=>{
+  note('Creating your account…');
+  const response=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(data))});
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.error?.details?.[0]?.message||result.error?.message||'Registration failed');
+  forms.signin.elements.email.value=String(data.get('email'));
+  view('signin',result.message);
+});
+handle(completion,async(data,auth)=>{
+  const {data:{session}}=await auth.auth.getSession();
+  const response=await fetch('/api/auth/registration',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify(Object.fromEntries(data))});
+  const result=await response.json();if(!response.ok)throw new Error(result.error?.message||'Unable to save details');
+  await verify(session);
+});
+handle(forms.recovery,async(data,auth)=>{
+  const {error}=await auth.auth.resetPasswordForEmail(String(data.get('email')).trim(),{redirectTo:location.origin+'/'});
+  if(error)throw error;view('signin','If that email is registered, a secure reset link is on its way. Check your inbox and spam folder.');
+});
+handle(forms['update-password'],async(data,auth)=>{
+  if(data.get('password')!==data.get('confirm_password'))throw new Error('Passwords do not match');
+  const {error}=await auth.auth.updateUser({password:String(data.get('password'))});if(error)throw error;
+  recovery=false;await auth.auth.signOut({scope:'local'});signedOut('Password updated. Sign in with your new password.');
+});
+document.querySelector('#resend-verification').addEventListener('click',async()=>{
+  if(!client)return;
+  const email=forms.signin.elements.email.value.trim()||forms.signup.elements.email.value.trim();
+  if(!email){note('Enter your email address first.');return;}
+  const {error}=await client.auth.resend({type:'signup',email,options:{emailRedirectTo:location.origin+'/'}});
+  note(error?.message||'If verification is needed, an email is on its way.',error?'error':'info');
+});
+signout.addEventListener('click',async()=>{
+  if(!client)return;
+  manuallySignedOut=true;
+  signedOut('You have signed out.');
+  // Close the workspace immediately. A stalled Auth request must not leave
+  // this browser looking signed in or retain credentials after a reload.
+  try{
+    await Promise.race([client.auth.signOut({scope:'local'}),new Promise(resolve=>setTimeout(resolve,5000))]);
+  }catch{
+    // Local credentials are cleared below even if the network is unavailable.
+  }finally{
+    localStorage.removeItem('col-ams-auth-session');
+    localStorage.removeItem('col-ams-auth-session-code-verifier');
+    location.replace('/');
+  }
+});
+async function initialize(){
+  try{
+    const response=await fetch('/api/auth/config',{cache:'no-store'});const config=await response.json();
+    if(!response.ok)throw new Error(config.error?.message||'Sign-in is not configured');
+    client=createClient(config.supabaseUrl,config.publishableKey,{auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:true,storageKey:'col-ams-auth-session'}});
+    client.auth.onAuthStateChange((event,session)=>{
+      if(manuallySignedOut)return;
+      if(event==='PASSWORD_RECOVERY'){recovery=true;revision++;closeWorkspace();view('update-password');return;}
+      if(recovery&&session)return;
+      if(event==='SIGNED_OUT'||!session){signedOut();return;}
+      if(['INITIAL_SESSION','SIGNED_IN','TOKEN_REFRESHED','USER_UPDATED'].includes(event))setTimeout(()=>verify(session).catch(e=>note(e.message,'error')),0);
+    });
+    const collegesResponse=await fetch('/api/auth/colleges');const {colleges=[]}=await collegesResponse.json();
+    collegeCatalog=colleges;populateCompletion();
+    const institution=forms.signup.elements.institution;const college=forms.signup.elements.college;
+    const renderColleges=()=>{college.replaceChildren(...colleges.filter(c=>c.institution===institution.value).map(c=>new Option(c.name,c.name)));};
+    institution.addEventListener('change',renderColleges);renderColleges();
+  }catch(e){signedOut(e.message||'Unable to load sign-in. Refresh and retry.');}
+}
+initialize();

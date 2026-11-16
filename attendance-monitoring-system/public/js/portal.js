@@ -1,0 +1,220 @@
+const page=document.querySelector('#page-content');
+const nav=document.querySelector('#workspace-nav');
+const dialog=document.querySelector('#qr-dialog');
+const toast=document.querySelector('#toast');
+let session=null, currentPage='dashboard', screen=0, scanner=null, cameraStarting=null, scanning=false;
+let refreshTimer=null, qrTimer=null, qrEvent=null, aborter=new AbortController();
+let notificationTimer=null, knownNotifications=null;
+let users=[],students=[],events=[],colleges=[];
+const adminRoles=['main_admin','admin','col_officer'];
+const isAdmin=()=>adminRoles.includes(session?.role);
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const date=value=>new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(new Date(value));
+const heading=(title,copy)=>`<div class="page-heading"><p class="eyebrow">COL / ${isAdmin()?'ADMINISTRATION':'STUDENT WORKSPACE'}</p><h1>${esc(title)}</h1><p>${esc(copy)}</p></div>`;
+function announce(text,state=false){toast.textContent=text;toast.dataset.state=state===true?'error':typeof state==='string'?state:'success';toast.hidden=false;setTimeout(()=>toast.hidden=true,6000);}
+async function api(path,options={}){
+  const response=await fetch(path,{...options,cache:'no-store',signal:aborter.signal,headers:{Authorization:'Bearer '+session?.accessToken,...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(data.error?.details?.[0]?.message||data.error?.message||`Request failed (${response.status})`);
+  return data;
+}
+const send=(path,body,method='POST')=>api(path,{method,body:JSON.stringify(body)});
+function institutionOptions(value='',all=true){return `${all?'<option value="">All institutions</option>':''}${['MCNP','ISAP'].map(i=>`<option ${i===value?'selected':''}>${i}</option>`).join('')}`;}
+function collegeOptions(institution='',value='',all=true){return `${all?'<option value="">All colleges</option>':''}${colleges.filter(c=>c.institution===institution).map(c=>`<option value="${esc(c.name)}" ${c.name===value?'selected':''}>${esc(c.name)}</option>`).join('')}`;}
+function statsMarkup(stats){return stats.length?stats.map(s=>`<div class="stat-row"><div><strong>${esc(s.institution)}${s.college?' / '+esc(s.college):' · overall'}</strong><small>${s.attended} / ${s.eligible} active student records</small></div><strong>${s.percentage}%</strong><progress max="100" value="${s.percentage}" aria-label="${esc(s.institution+' '+(s.college||'overall'))} attendance"></progress></div>`).join(''):'<p class="muted">No eligible students have an institution and college assigned yet.</p>';}
+async function stopCamera(){
+  const active=scanner;scanner=null;scanning=false;
+  if(cameraStarting){try{await cameraStarting;}catch{/* Startup failed. */}}
+  if(active){try{if(active.isScanning)await active.stop();active.clear();}catch{/* View is already closed. */}}
+}
+async function navigate(name,push=true){
+  const version=++screen;currentPage=name;clearInterval(refreshTimer);refreshTimer=null;
+  await stopCamera();if(version!==screen||!session)return;
+  if(push&&location.pathname!=='/')history.pushState({},'','/');
+  nav.querySelectorAll('button').forEach(b=>{b.classList.toggle('active',b.dataset.page===name);b.setAttribute('aria-current',b.dataset.page===name?'page':'false');});
+  page.innerHTML='<p class="muted">Loading workspace…</p>';
+  try{
+    if(name==='dashboard')await (isAdmin()?adminDashboard(version):studentDashboard(version));
+    else if(name==='verifications')await verifications(version);
+    else if(name==='events')await eventManagement(version);
+    else if(name==='roles'&&session.role==='main_admin')await roleManagement(version);
+    else if(name==='reports')await reports(version);
+    else if(name==='history')await historyView(version);
+    else if(name==='roster')await roster(version);
+    else throw new Error('This page is not available to your account');
+  }catch(e){if(version===screen&&e.name!=='AbortError')page.innerHTML=heading('Unable to load this page',e.message)+'<button class="secondary-button" data-retry>Retry</button>';}
+}
+function setNav(){
+  const entries=isAdmin()?[['dashboard','Overview & security'],['verifications','User verifications'],['events','Events & geofencing'],['roster','Students & colleges'],['reports','Attendance reports'],...(session.role==='main_admin'?[['roles','Manage role access']]:[])]:[['dashboard','Campus events'],['history','My attendance']];
+  nav.innerHTML=entries.map(([key,label])=>`<button type="button" data-page="${key}">${label}</button>`).join('');
+}
+window.addEventListener('app:session',event=>{
+  const previous=session;session=event.detail;
+  if(!session){screen++;aborter.abort();aborter=new AbortController();clearInterval(refreshTimer);clearInterval(qrTimer);clearInterval(notificationTimer);knownNotifications=null;void stopCamera();dialog.close();page.replaceChildren();return;}
+  if(previous?.user.id===session.user.id&&previous.role===session.role)return;
+  setNav();
+  clearInterval(notificationTimer);
+  if(isAdmin()){
+    const poll=async()=>{try{const {notifications}=await api('/api/admin/notifications');if(knownNotifications){const fresh=notifications.filter(n=>!knownNotifications.has(n.id)&&!n.read_at);if(fresh.length)announce(fresh[0].message);}knownNotifications=new Set(notifications.map(n=>n.id));}catch{/* A failed poll will retry; page actions show their own errors. */}};
+    void poll();notificationTimer=setInterval(poll,15000);
+  }
+  const eventId=/^\/events\/([^/]+)$/.exec(location.pathname)?.[1];
+  if(eventId&&!isAdmin())void openStudentEvent(eventId,false);else void navigate('dashboard',false);
+});
+nav.addEventListener('click',event=>{const b=event.target.closest('[data-page]');if(b)void navigate(b.dataset.page);});
+window.addEventListener('popstate',()=>{if(!session)return;const id=/^\/events\/([^/]+)$/.exec(location.pathname)?.[1];if(id&&!isAdmin())void openStudentEvent(id,false);else void navigate('dashboard',false);});
+
+async function studentDashboard(version){
+  const data=await api('/api/student/dashboard');if(version!==screen)return;
+  const active=data.events.filter(e=>e.is_open),upcoming=data.events.filter(e=>!e.is_open);
+  function cards(items){return items.length?items.map(e=>{
+    const attendance=data.attendance.find(a=>a.event_id===e.id);
+    return `<button class="event-card" data-open-event="${e.id}" ${!e.is_open||!e.eligible?'disabled':''}><span class="event-state">${attendance?esc(attendance.status.replaceAll('_',' ')):e.is_open?'Open for attendance':'Upcoming'}</span><h3>${esc(e.name)}</h3><p>${esc(date(e.starts_at))}</p><small>${esc(e.institution||'MCNP + ISAP')} · ${esc(e.college||'All colleges')}</small><span class="event-card-foot">${!e.eligible?'Not eligible for this event':e.is_open?'View event & record attendance →':'Opens '+esc(date(e.opens_at))}</span></button>`;
+  }).join(''):'<div class="empty-state">No events in this category.</div>';}
+  page.innerHTML=heading('Your campus, in attendance.','View current events, see campus participation, and record your attendance at the venue.')+
+    `<div class="summary-grid"><div class="summary-tile"><small>YOUR INSTITUTION</small><strong>${esc(data.student?.institution||'Not assigned')}</strong><span>${esc(data.student?.college||'Contact an administrator to complete your college details')}</span></div><div class="summary-tile"><small>APPROVED ATTENDANCE</small><strong>${data.attendance.filter(a=>a.status==='approved').length}</strong><span>Recent recorded events</span></div><div class="summary-tile"><small>PENALTY POINTS</small><strong>${data.profile.penalty_points}</strong><span>${session.device?.requires_review?'This browser requires attendance review':'Keep using your registered browser device'}</span></div></div>
+    <h2 class="section-title">Ongoing & opening soon</h2><div class="event-grid">${cards(active)}</div><h2 class="section-title">Upcoming events</h2><div class="event-grid">${cards(upcoming)}</div>
+    <section class="workspace-card"><h2>Attendance by institution & college</h2><p class="muted">Approved attendance / active eligible student records. Pending and rejected submissions are excluded.</p><select id="statistics-event" class="wide-select"><option value="">Choose an event</option>${data.events.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select><div id="statistics-content"></div></section>`;
+  page.querySelector('#statistics-event').addEventListener('change',async event=>{
+    const id=event.target.value,target=page.querySelector('#statistics-content');if(!id){target.replaceChildren();return;}
+    try{const result=await api(`/api/student/events/${id}/statistics`);if(version===screen&&page.querySelector('#statistics-event')?.value===id)target.innerHTML=statsMarkup(result.statistics);}catch(e){target.textContent=e.message;}
+  });
+  const firstEvent=active[0]||data.events[0];
+  if(firstEvent){const select=page.querySelector('#statistics-event');select.value=firstEvent.id;select.dispatchEvent(new Event('change'));}
+  refreshTimer=setInterval(()=>{if(!document.hidden)void navigate('dashboard',false);},60000);
+}
+async function historyView(version){
+  const data=await api('/api/student/dashboard');if(version!==screen)return;
+  page.innerHTML=heading('My attendance','Your recent attendance submissions and administrator decisions.')+`<section class="workspace-card">${data.attendance.length?data.attendance.map(a=>`<article class="review-row"><div><strong>${esc(a.events?.name||'Event')}</strong><p>${esc(date(a.checked_in_at))} · ${a.distance_from_venue_meters} m from venue</p>${a.review_note?`<p>${esc(a.review_note)}</p>`:''}</div><span class="status-badge ${a.status==='approved'?'good':'warning'}">${esc(a.status.replaceAll('_',' '))}</span></article>`).join(''):'<p class="muted">No attendance recorded yet.</p>'}</section>`;
+}
+async function openStudentEvent(id,push=true){
+  const version=++screen;clearInterval(refreshTimer);await stopCamera();if(version!==screen)return;
+  currentPage='event';if(push)history.pushState({},'',`/events/${id}`);page.innerHTML='<p class="muted">Loading event…</p>';
+  try{
+    const {event,statistics}=await api(`/api/student/events/${encodeURIComponent(id)}`);if(version!==screen)return;
+    page.innerHTML=`<button class="text-button" data-back-events>← Back to campus events</button>`+heading(event.name,`${date(event.starts_at)} – ${date(event.ends_at)}`)+
+      `<div class="event-page-grid"><section class="workspace-card"><p class="eyebrow">RECORD YOUR ATTENDANCE</p><h2>Scan the event QR</h2><p class="muted">Use the camera below to scan the administrator's current code at the venue. Allow precise location access.</p><div class="camera-frame"><div id="event-reader"></div><div id="scan-placeholder">Your camera preview appears here</div></div><button id="scan-event" class="primary-button" ${Date.now()>Date.parse(event.ends_at)?'disabled':''}>${Date.now()>Date.parse(event.ends_at)?'Event has ended':'Start camera'}</button><button id="stop-event-camera" class="secondary-button" hidden>Stop camera</button><div id="scan-result" class="result" role="status" aria-live="assertive">Ready to scan. Venue radius: ${event.radius_meters} meters.</div><p class="muted">Device: ${esc(session.device?.device_id||'verified browser')}. Changed or shared devices require administrator review.</p></section><section class="workspace-card"><h2>Campus participation</h2>${statsMarkup(statistics)}</section></div>`;
+    page.querySelector('#scan-event').addEventListener('click',()=>void scanEvent(event,version));
+    page.querySelector('#stop-event-camera').addEventListener('click',async()=>{await stopCamera();if(version!==screen)return;page.querySelector('#scan-event').disabled=false;page.querySelector('#scan-event').hidden=false;page.querySelector('#stop-event-camera').hidden=true;});
+  }catch(e){if(version===screen)page.innerHTML=heading('Event unavailable',e.message)+'<button class="secondary-button" data-back-events>Back to events</button>';}
+}
+function locate(){return new Promise((resolve,reject)=>{
+  if(!navigator.geolocation){reject(new Error('Location is unavailable on this device'));return;}
+  navigator.geolocation.getCurrentPosition(resolve,error=>reject(new Error(({1:'Location permission denied. Allow precise location and retry.',2:'Location unavailable. Move to an area with a clear GPS signal.',3:'Location timed out. Please retry.'})[error.code]||'Unable to get your location')),{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+});}
+async function scanEvent(event,version){
+  if(scanning||cameraStarting)return;
+  const button=page.querySelector('#scan-event'),result=page.querySelector('#scan-result');
+  if(!window.Html5Qrcode){result.textContent='Camera scanner did not load. Check your internet connection and refresh.';return;}
+  button.disabled=true;result.textContent='Opening camera…';
+  const camera=new window.Html5Qrcode('event-reader');scanner=camera;
+  const userId=session.user.id;
+  let submitted=false;
+  try{
+    cameraStarting=camera.start({facingMode:'environment'},{fps:10,qrbox:(width,height)=>({width:Math.min(230,width*.75),height:Math.min(230,height*.75)})},async token=>{
+      if(submitted||version!==screen||session?.user.id!==userId)return;
+      submitted=true;
+      const positionPromise=locate();
+      result.textContent='Verifying your location and device…';
+      try{
+        // Handle GPS rejection immediately while camera teardown completes.
+        const position=await positionPromise;
+        await stopCamera();
+        if(version!==screen||session?.user.id!==userId)return;
+        const data=await send('/api/student/check-in',{event_id:event.id,event_token:token,latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy_meters:position.coords.accuracy});
+        if(version!==screen)return;
+        result.textContent=data.message;result.dataset.state=data.attendance.status==='approved'?'success':'loading';
+        announce(data.message,data.attendance.status==='approved'?'success':'warning');button.textContent='Attendance submitted';button.disabled=true;
+      }catch(e){
+        await stopCamera();if(version!==screen)return;
+        result.textContent=e.message;result.dataset.state='error';announce(e.message,true);button.disabled=false;button.textContent='Try scanning again';
+      }finally{if(version===screen){button.hidden=false;page.querySelector('#stop-event-camera').hidden=true;}}
+    },()=>{});
+    await cameraStarting;cameraStarting=null;scanning=true;
+    if(version!==screen||session?.user.id!==userId){await stopCamera();return;}
+    page.querySelector('#scan-placeholder').hidden=true;button.hidden=true;page.querySelector('#stop-event-camera').hidden=false;result.textContent='Point the camera at the event QR.';
+  }catch(e){if(version===screen){result.textContent='Could not open the camera. Allow camera access and use HTTPS or localhost.';result.dataset.state='error';button.disabled=false;}try{camera.clear();}catch{/* Camera did not start. */}scanner=null;}finally{cameraStarting=null;}
+}
+
+async function getUsers(){const data=await api('/api/admin/users');users=data.users;return users;}
+async function adminDashboard(version){
+  const [security]=await Promise.all([api('/api/admin/security'),getUsers()]);if(version!==screen)return;
+  const identity=id=>esc(users.find(u=>u.user_id===id)?.full_name||users.find(u=>u.user_id===id)?.email||id||'Unknown');
+  page.innerHTML=heading('Attendance, with accountability.','Review login devices, registration requests, and attendance that needs a decision.')+
+    `<div class="summary-grid"><div class="summary-tile"><small>REGISTRATION REQUESTS</small><strong>${users.filter(u=>u.approval_status==='pending').length}</strong><span>Waiting for identity review</span></div><div class="summary-tile"><small>DEVICE INCIDENTS</small><strong>${security.incidents.filter(i=>i.status==='open').length}</strong><span>Changed or shared browsers</span></div><div class="summary-tile"><small>ATTENDANCE TO REVIEW</small><strong>${security.attendance.length}</strong><span>Excluded from attendance percentages</span></div></div>
+    <section class="workspace-card"><h2>Notifications <span class="count-pill">${security.notifications.filter(n=>!n.read_at).length} unread</span></h2><div class="notification-list">${security.notifications.length?security.notifications.map(n=>`<article class="review-row"><div><strong>${identity(n.user_id)}</strong><p>${esc(n.message)}</p><small>${esc(date(n.created_at))}</small></div>${n.read_at?'<span class="muted">Read</span>':`<button class="small-action" data-read-notification="${n.id}">Mark read</button>`}</article>`).join(''):'<p class="muted">No notifications.</p>'}</div></section>
+    <section class="workspace-card"><h2>Attendance requiring a decision</h2>${security.attendance.length?security.attendance.map(a=>`<article class="review-row"><div><strong>${esc(a.students?.name)} · ${esc(a.events?.name)}</strong><p>Potential malicious attendance · ${esc(a.risk_reasons.join(', '))}</p><small>${a.distance_from_venue_meters} m from venue · Browser ${esc(a.device_hash?.slice(0,12))}</small></div><div class="row-actions"><button class="small-action" data-review-attendance="${a.id}" data-decision="approved">Accept</button><button class="small-action danger" data-review-attendance="${a.id}" data-decision="rejected">Reject</button></div></article>`).join(''):'<p class="muted">No attendance awaiting review.</p>'}</section>
+    <section class="workspace-card"><h2>Device incidents</h2>${security.incidents.length?security.incidents.map(i=>`<article class="review-row"><div><strong>${identity(i.user_id)}</strong><p>${i.changed_device?'Changed browser device. ':''}${i.shared_device?'Browser used by another account. ':''}Penalty: ${i.penalty_points} point.</p><small>Device ${esc(i.device_hash.slice(0,12))} · ${esc(i.status)} · ${esc(date(i.created_at))}</small></div>${i.status==='open'?`<div class="row-actions"><button class="small-action" data-review-device="${i.id}" data-decision="trusted">Trust this browser</button><button class="small-action" data-review-device="${i.id}" data-decision="dismissed">Dismiss alert</button></div>`:''}</article>`).join(''):'<p class="muted">No device incidents.</p>'}</section>
+    <section class="workspace-card"><h2>Login history</h2><p class="muted">Browser identifiers are supporting signals. MAC addresses are not available to websites. Different browsers and cleared cookies appear as different devices.</p><div class="table-scroll"><table><thead><tr><th>User / time</th><th>Browser device</th><th>Network address</th><th>Browser details</th><th>Risk</th></tr></thead><tbody>${security.logins.map(l=>`<tr><td>${identity(l.user_id)}<small>${esc(date(l.created_at))}</small></td><td>${esc(l.device_hash.slice(0,12))}</td><td>${esc(l.ip_address)}</td><td class="browser-detail">${esc(l.user_agent)}</td><td>${l.shared_device?'Shared ':''}${l.changed_device?'Changed':''}${!l.shared_device&&!l.changed_device?'Registered':''}</td></tr>`).join('')}</tbody></table></div></section>`;
+  refreshTimer=setInterval(()=>{if(!document.hidden&&!dialog.open)void navigate('dashboard',false);},60000);
+}
+async function verifications(version){
+  await getUsers();if(version!==screen)return;
+  page.innerHTML=heading('Verify new accounts','Check each personal ID and institution before allowing attendance access.')+`<section class="workspace-card">${users.filter(u=>u.approval_status==='pending'||u.approval_status==='rejected').map(u=>`<article class="review-row"><div><strong>${esc(u.full_name||'Unnamed account')}</strong><p>${esc(u.email)} · ID ${esc(u.personal_id||'Missing personal ID')}</p><small>${esc(u.institution||'Institution missing')} / ${esc(u.college||'College missing')} · ${esc(u.approval_status)}</small>${u.review_note?`<p>${esc(u.review_note)}</p>`:''}</div>${u.approval_status==='pending'?`<div class="row-actions"><button class="small-action" data-verify-user="${u.user_id}" data-decision="approved">Approve</button><button class="small-action danger" data-verify-user="${u.user_id}" data-decision="rejected">Reject</button></div>`:''}</article>`).join('')||'<p class="muted">No registration requests waiting.</p>'}</section>`;
+}
+async function eventManagement(version){
+  const [data,catalog]=await Promise.all([api('/api/admin/events'),api('/api/auth/colleges')]);events=data.events;colleges=catalog.colleges;if(version!==screen)return;
+  page.innerHTML=heading('Events & geofencing','Set the venue, attendance window, and eligible institutions. Attendance opens one hour before the event.')+
+    `<div class="admin-columns"><section class="workspace-card"><h2 id="event-form-title">Create an event</h2><form id="event-form" class="management-form"><input type="hidden" name="id"><label class="admin-field">EVENT NAME<input name="name" required maxlength="160"></label><div class="coordinate-fields"><label class="admin-field">LATITUDE<input name="latitude" type="number" step="any" min="-90" max="90" required></label><label class="admin-field">LONGITUDE<input name="longitude" type="number" step="any" min="-180" max="180" required></label></div><button type="button" id="use-location" class="small-action">Use my current location as venue center</button><label class="admin-field">RADIUS IN METERS<input name="radius_meters" type="number" min="1" max="100000" value="100" required></label><div class="coordinate-fields"><label class="admin-field">START<input name="starts_at" type="datetime-local" required></label><label class="admin-field">END<input name="ends_at" type="datetime-local" required></label></div><p class="muted" id="event-duration">Times use your current local timezone. End time defines the duration.</p><label class="admin-field">INSTITUTION<select name="institution">${institutionOptions()}</select></label><label class="admin-field">COLLEGE<select name="college">${collegeOptions()}</select></label><button class="report-button" type="submit">Save event →</button><button class="text-button" type="reset">Clear / cancel edit</button></form></section>
+    <section class="workspace-card"><h2>Scheduled events</h2>${events.map(e=>`<article class="event-admin-row"><span class="event-state">${e.archived_at?'Archived':Date.now()>Date.parse(e.ends_at)?'Ended':Date.now()>=Date.parse(e.starts_at)?'Ongoing':'Scheduled'}</span><h3>${esc(e.name)}</h3><p>${esc(date(e.starts_at))} – ${esc(date(e.ends_at))}</p><small>${e.radius_meters} m · ${esc(e.institution||'Both institutions')} / ${esc(e.college||'All colleges')}</small><div class="row-actions"><button class="small-action" data-event-qr="${e.id}" ${e.archived_at?'disabled':''}>Display QR</button><button class="small-action" data-edit-event="${e.id}">Edit</button><button class="small-action" data-archive-event="${e.id}" data-archived="${!!e.archived_at}">${e.archived_at?'Restore':'Archive'}</button></div></article>`).join('')||'<p class="muted">No events yet.</p>'}</section></div>`;
+  const form=page.querySelector('#event-form');
+  form.elements.institution.addEventListener('change',()=>form.elements.college.innerHTML=collegeOptions(form.elements.institution.value));
+  form.addEventListener('reset',()=>{form.elements.id.value='';page.querySelector('#event-form-title').textContent='Create an event';});
+  form.addEventListener('input',()=>{const minutes=(Date.parse(form.elements.ends_at.value)-Date.parse(form.elements.starts_at.value))/60000;if(minutes>0)page.querySelector('#event-duration').textContent=`Duration: ${Math.floor(minutes/60)}h ${minutes%60}m. Attendance opens one hour before start.`;});
+  page.querySelector('#use-location').addEventListener('click',async()=>{try{const p=await locate();form.elements.latitude.value=p.coords.latitude;form.elements.longitude.value=p.coords.longitude;announce('Venue center set from your current location.');}catch(e){announce(e.message,true);}});
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();const button=form.querySelector('[type=submit]');button.disabled=true;
+    try{const values=Object.fromEntries(new FormData(form)),id=values.id;delete values.id;for(const k of ['latitude','longitude','radius_meters'])values[k]=Number(values[k]);for(const k of ['starts_at','ends_at'])values[k]=new Date(values[k]).toISOString();values.institution=values.institution||null;values.college=values.college||null;await send(id?`/api/admin/events/${id}`:'/api/admin/events',values,id?'PATCH':'POST');announce('Event saved.');void navigate('events',false);}catch(e){announce(e.message,true);button.disabled=false;}
+  });
+}
+async function roleManagement(version){
+  const [,data]=await Promise.all([getUsers(),api('/api/admin/students')]);students=data.students;if(version!==screen)return;
+  page.innerHTML=heading('Manage role access','Only your main administrator account can promote or demote approved users.')+`<section class="workspace-card">${users.map(u=>`<form class="role-row" data-role-user="${u.user_id}"><div><strong>${esc(u.full_name||u.email)}</strong><p>${esc(u.email)} · ${esc(u.approval_status)}</p></div><label class="admin-field">ROLE<select name="role" ${u.role==='main_admin'?'disabled':''}>${['student','student_officer','col_officer','admin',...(u.role==='main_admin'?['main_admin']:[])].map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${r.replaceAll('_',' ')}</option>`).join('')}</select></label><label class="admin-field">STUDENT RECORD<select name="student_id"><option value="">No student link</option>${students.filter(s=>!s.archived_at).map(s=>`<option value="${s.id}" ${s.id===u.student_id?'selected':''}>${esc(s.name)} / ${esc(s.student_number)}</option>`).join('')}</select></label><button type="submit" class="small-action" ${u.role==='main_admin'||u.approval_status!=='approved'?'disabled':''}>Save access</button></form>`).join('')}</section>`;
+  page.querySelectorAll('[data-role-user]').forEach(form=>form.addEventListener('submit',async event=>{event.preventDefault();const b=form.querySelector('button');b.disabled=true;try{const input=Object.fromEntries(new FormData(form));input.student_id=input.student_id||null;await send(`/api/admin/users/${form.dataset.roleUser}`,input,'PATCH');announce('Role updated.');void navigate('roles',false);}catch(e){announce(e.message,true);b.disabled=false;}}));
+}
+async function roster(version){
+  const [data,catalog]=await Promise.all([api('/api/admin/students'),api('/api/auth/colleges')]);students=data.students;colleges=catalog.colleges;if(version!==screen)return;
+  page.innerHTML=heading('Students & colleges','Keep institution and college assignments accurate so attendance percentages have the right denominator.')+`<div class="admin-columns"><section class="workspace-card"><h2>Student record</h2><form id="student-form" class="management-form"><input name="id" type="hidden"><label class="admin-field">FULL NAME<input name="name" required maxlength="120"></label><label class="admin-field">PERSONAL ID<input name="student_number" required maxlength="40"></label><label class="admin-field">INSTITUTION<select name="institution">${institutionOptions('',false)}</select></label><label class="admin-field">COLLEGE<select name="college">${collegeOptions('MCNP','',false)}</select></label><button class="report-button" type="submit">Save student record →</button></form><h2 class="section-title">Add a college</h2><form id="college-form" class="management-form"><label class="admin-field">INSTITUTION<select name="institution">${institutionOptions('',false)}</select></label><label class="admin-field">COLLEGE NAME<input name="name" required maxlength="100"></label><button class="report-button" type="submit">Add college →</button></form></section><section class="workspace-card"><h2>Student records</h2>${students.map(s=>`<article class="review-row"><div><strong>${esc(s.name)}${s.archived_at?' · Archived':''}</strong><p>${esc(s.student_number)} · ${esc(s.institution||'Unassigned')} / ${esc(s.college||'Unassigned')}</p></div><div class="row-actions"><button class="small-action" data-edit-student="${s.id}">Edit</button><button class="small-action" data-archive-student="${s.id}" data-archived="${!!s.archived_at}">${s.archived_at?'Restore':'Archive'}</button></div></article>`).join('')||'<p class="muted">No students.</p>'}</section></div>`;
+  const studentForm=page.querySelector('#student-form');studentForm.elements.institution.addEventListener('change',()=>studentForm.elements.college.innerHTML=collegeOptions(studentForm.elements.institution.value,'',false));
+  for(const [formId,url] of [['student-form','students'],['college-form','colleges']]){
+    const form=page.querySelector('#'+formId);form.addEventListener('submit',async event=>{event.preventDefault();const b=form.querySelector('button');b.disabled=true;try{const input=Object.fromEntries(new FormData(form));const id=input.id;delete input.id;await send(`/api/admin/${url}${id?'/'+id:''}`,input,id?'PATCH':'POST');announce('Saved.');void navigate('roster',false);}catch(e){announce(e.message,true);b.disabled=false;}});
+  }
+}
+async function reports(version){
+  const {events:items}=await api('/api/admin/events');if(version!==screen)return;
+  page.innerHTML=heading('Attendance reports','Export approved attendance. Files are generated in the background and delivered through a temporary private link.')+`<section class="workspace-card"><form id="report-form" class="management-form"><label class="admin-field">EVENT<select name="event_id" required><option value="">Choose event</option>${items.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></label><label class="admin-field">FORMAT<select name="format"><option value="csv">CSV</option><option value="xlsx">Excel</option><option value="pdf">PDF</option><option value="docx">DOCX</option></select></label><button class="report-button" type="submit">Generate report →</button></form><p id="report-state" role="status"></p><a id="report-link" class="download-link" target="_blank" rel="noopener" hidden>Download report</a></section>`;
+  const form=page.querySelector('#report-form');form.addEventListener('submit',async event=>{event.preventDefault();const b=form.querySelector('button'),status=page.querySelector('#report-state'),link=page.querySelector('#report-link');b.disabled=true;link.hidden=true;
+    try{let job=await send('/api/admin/reports',Object.fromEntries(new FormData(form)));const statusUrl=job.status_url;status.textContent='Report queued…';
+      for(let attempt=0;attempt<300;attempt++){await new Promise(r=>setTimeout(r,2000));if(version!==screen)return;job=await api(statusUrl);if(job.status==='failed')throw new Error(job.error);if(job.status==='completed'){status.textContent=`Ready · ${job.record_count} approved check-ins. Download link expires in 10 minutes.`;link.href=job.download_url;link.hidden=false;break;}status.textContent=job.status==='queued'?'Report queued…':'Generating report…';if(attempt===299)throw new Error('Report is still processing. Job ID: '+job.job_id);}
+    }catch(e){status.textContent=e.message;}finally{b.disabled=false;}
+  });
+}
+async function displayQr(id){
+  clearInterval(qrTimer);qrEvent=id;dialog.showModal();document.querySelector('#event-qr').replaceChildren();
+  const refresh=async()=>{try{const data=await api(`/api/admin/events/${id}/qr`);if(qrEvent!==id||!dialog.open)return;document.querySelector('#qr-title').textContent=data.event_name;const container=document.querySelector('#event-qr');container.replaceChildren();if(!window.QRCode)throw new Error('QR generator failed to load. Refresh the page.');new window.QRCode(container,{text:data.token,width:260,height:260,correctLevel:window.QRCode.CorrectLevel.M});document.querySelector('#qr-expiry').textContent='Code expires '+date(data.expires_at);}catch(e){document.querySelector('#qr-expiry').textContent=e.message;}};
+  await refresh();if(dialog.open)qrTimer=setInterval(refresh,4*60000);
+}
+dialog.addEventListener('close',()=>{clearInterval(qrTimer);qrEvent=null;document.querySelector('#event-qr').replaceChildren();});
+document.querySelector('#close-qr').addEventListener('click',()=>dialog.close());
+document.querySelector('#rotate-qr').addEventListener('click',async()=>{if(!qrEvent)return;try{await send(`/api/admin/events/${qrEvent}/qr/rotate`,{});const id=qrEvent;dialog.close();await displayQr(id);announce('Previous codes revoked.');}catch(e){announce(e.message,true);}});
+page.addEventListener('click',async event=>{
+  const b=event.target.closest('button');if(!b||b.disabled)return;
+  if(b.hasAttribute('data-retry')){void navigate(currentPage,false);return;}
+  if(b.hasAttribute('data-back-events')){void navigate('dashboard');return;}
+  if(b.dataset.openEvent){void openStudentEvent(b.dataset.openEvent);return;}
+  if(b.dataset.eventQr){await displayQr(b.dataset.eventQr);return;}
+  if(b.dataset.editEvent){const e=events.find(e=>e.id===b.dataset.editEvent),f=page.querySelector('#event-form');for(const key of ['id','name','latitude','longitude','radius_meters'])f.elements[key].value=e[key];f.elements.institution.value=e.institution||'';f.elements.college.innerHTML=collegeOptions(e.institution,e.college);for(const key of ['starts_at','ends_at']){const d=new Date(e[key]);f.elements[key].value=new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}page.querySelector('#event-form-title').textContent='Edit '+e.name;f.scrollIntoView({behavior:'smooth'});return;}
+  if(b.dataset.editStudent){const s=students.find(s=>s.id===b.dataset.editStudent),f=page.querySelector('#student-form');for(const key of ['id','name','student_number'])f.elements[key].value=s[key];f.elements.institution.value=s.institution||'MCNP';f.elements.college.innerHTML=collegeOptions(f.elements.institution.value,s.college,false);f.scrollIntoView({behavior:'smooth'});return;}
+  b.disabled=true;
+  try{
+    if(b.dataset.readNotification)await send(`/api/admin/notifications/${b.dataset.readNotification}/read`,{},'PATCH');
+    else if(b.dataset.archiveEvent)await send(`/api/admin/events/${b.dataset.archiveEvent}/archive`,{archived:b.dataset.archived!=='true'},'PATCH');
+    else if(b.dataset.archiveStudent)await send(`/api/admin/students/${b.dataset.archiveStudent}/archive`,{archived:b.dataset.archived!=='true'},'PATCH');
+    else if(b.dataset.verifyUser||b.dataset.reviewAttendance||b.dataset.reviewDevice){
+      const note=window.prompt('Add a reason for this decision (required):');if(!note?.trim()){b.disabled=false;return;}
+      const url=b.dataset.verifyUser?`/api/admin/users/${b.dataset.verifyUser}/verification`:b.dataset.reviewAttendance?`/api/admin/attendance/${b.dataset.reviewAttendance}/review`:`/api/admin/devices/${b.dataset.reviewDevice}/review`;
+      await send(url,{decision:b.dataset.decision,note:note.trim()},'PATCH');
+    }else{b.disabled=false;return;}
+    announce('Decision saved.');void navigate(currentPage,false);
+  }catch(e){announce(e.message,true);b.disabled=false;}
+});
