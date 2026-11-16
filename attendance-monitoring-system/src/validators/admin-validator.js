@@ -20,6 +20,7 @@ export const createEventSchema = z.object({
   latitude: z.number().finite().min(-90).max(90),
   longitude: z.number().finite().min(-180).max(180),
   radius_meters: z.number().finite().positive().max(100_000),
+  max_check_in_attempts: z.number().int().min(1).max(20).default(3),
   starts_at: z.string().datetime({ offset: true }),
   ends_at: z.string().datetime({ offset: true }),
   institution: z.enum(['MCNP','ISAP']).nullable().default(null),

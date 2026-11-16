@@ -1,5 +1,26 @@
 /* Shared readable type and touch targets. Load after the original theme so
    compact legacy component rules cannot shrink the active campus workspace. */
+/* Keep the scanner's native video ratio and its calculated shaded region in
+   the same coordinate space. Do not stretch just the video independently. */
+#event-reader, #reader { position: relative; inset: auto; width: 100%; border: 0 !important; }
+#event-reader video, #reader video { display: block; width: 100% !important; height: auto !important; object-fit: contain !important; margin: 0 auto; }
+#event-reader__scan_region, #reader__scan_region { position: relative; width: 100%; min-height: 0 !important; }
+.camera-frame:has(#event-reader), .camera-frame:has(#reader) { height: auto; min-height: 0; aspect-ratio: 1; display: grid; align-items: center; }
+.camera-frame:after { z-index: 0; }
+#event-reader, #reader { z-index: 1; }
+#scan-placeholder[hidden] { display: none; }
+.attempt-status { font-weight: 600; line-height: 1.6; }
+.role-search { position: relative; }
+#role-suggestions { position: absolute; z-index: 5; top: 100%; left: 0; right: 0; max-height: 22rem; overflow-y: auto; border: 1px solid var(--line); border-radius: .75rem; background: #152029; box-shadow: 0 12px 32px #0008; }
+#role-suggestions button { width: 100%; min-height: 3.5rem; display: flex; flex-direction: column; align-items: flex-start; gap: .35rem; padding: .9rem 1rem; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); background: transparent; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+#role-suggestions button:hover, #role-suggestions button[aria-selected="true"] { background: #2b4134; }
+#role-suggestions span { font-size: .875rem; color: var(--muted); }
+.role-row[hidden] { display: none; }
+.decision-dialog { width: min(32rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); padding: 1.5rem; border: 1px solid var(--line); border-radius: 1rem; background: #152029; color: var(--ink); }
+.decision-dialog::backdrop { background: #0009; }
+.decision-dialog textarea { font: inherit; width: 100%; padding: .875rem; border: 1px solid var(--line); border-radius: .5rem; background: #0c151c; color: inherit; resize: vertical; }
+.decision-dialog .row-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.decision-target { overflow-wrap: anywhere; }
 :root {
   font-size: 100%;
   --muted: #b3c0c9;

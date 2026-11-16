@@ -9,6 +9,7 @@ import { validateAcademicSelection } from '../services/academic-service.js';
 export const uuid = z.string().uuid();
 const fail = (status, message) => Object.assign(new Error(message), { status });
 function check(error) { if (error) { console.error('Portal database operation failed:', error.message); throw fail(503, 'Unable to load or save this request. Please retry.'); } }
+const reviewSchema=z.object({decision:z.enum(['approved','rejected']),note:z.string().trim().max(1000).default('')}).refine(input=>input.decision!=='rejected'||!!input.note,{path:['note'],message:'A reason is required when rejecting a request'}).transform(input=>({...input,note:input.note||'Approved after administrator review'}));
 export async function listColleges(_req, res, next) {
   try {
     const [parents,programs]=await Promise.all([
@@ -46,11 +47,14 @@ export async function dashboard(req,res,next) {
 export async function eventDetail(req,res,next) {
   try {
     const id=validate(uuid,req.params.eventId);
-    const {data:event,error}=await supabase.from('events').select('id,name,starts_at,ends_at,radius_meters,institution,college').eq('id',id).is('archived_at',null).maybeSingle();check(error);
+    const {data:event,error}=await supabase.from('events').select('id,name,starts_at,ends_at,radius_meters,institution,college,max_check_in_attempts').eq('id',id).is('archived_at',null).maybeSingle();check(error);
     if(!event)throw fail(404,'Event not found');
     if(Date.now()<Date.parse(event.starts_at)-3600000)throw fail(403,'This event opens one hour before its scheduled start');
     const {data:statistics,error:statsError}=await supabase.rpc('event_attendance_statistics',{p_event:id});check(statsError);
-    res.json({event,statistics});
+    const {data:attempt,error:attemptError}=await supabase.from('attendance_attempts').select('rejected_count').eq('student_id',req.userProfile.student_id).eq('event_id',id).maybeSingle();check(attemptError);
+    const {data:attendance,error:attendanceError}=await supabase.from('attendance_logs').select('status').eq('student_id',req.userProfile.student_id).eq('event_id',id).maybeSingle();check(attendanceError);
+    const rejected=attempt?.rejected_count||0;
+    res.json({event,statistics,attendance,attempts:{rejected,limit:event.max_check_in_attempts,remaining:Math.max(0,event.max_check_in_attempts-rejected),locked:rejected>=event.max_check_in_attempts}});
   }catch(e){next(e);}
 }
 export async function eventStatistics(req,res,next){
@@ -70,20 +74,22 @@ export async function rotateQr(req,res,next){
 export async function selfCheckIn(req,res,next) {
   try {
     const input=validate(z.object({event_id:uuid,event_token:z.string().min(1).max(2048),latitude:z.number().finite().min(-90).max(90),longitude:z.number().finite().min(-180).max(180),accuracy_meters:z.number().finite().nonnegative()}),req.body);
-    const qr=verifyEventQr(input.event_token,input.event_id);
+    let qr=null,qrError=null;
+    try{qr=verifyEventQr(input.event_token,input.event_id);}catch(e){if(e.status!==400)throw e;qrError=e.message;}
     await recordSession(req,res,req.get('authorization').replace(/^Bearer\s+/i,''));
-    const {data,error}=await supabase.rpc('submit_event_attendance',{p_user:req.authUser.id,p_event:input.event_id,p_qr_version:qr.version,p_device_hash:req.deviceHash,p_latitude:input.latitude,p_longitude:input.longitude,p_accuracy:input.accuracy_meters});
+    const {data,error}=await supabase.rpc('attempt_event_attendance',{p_user:req.authUser.id,p_event:input.event_id,p_qr_version:qr?.version||null,p_qr_error:qrError,p_device_hash:req.deviceHash,p_latitude:input.latitude,p_longitude:input.longitude,p_accuracy:input.accuracy_meters});
     if(error){
       if(error.code==='23505')throw fail(409,'Already checked in');
       if(['P0001','P0002'].includes(error.code))throw fail(400,error.code==='P0002'?'Student or event is unavailable':error.message);
       check(error);
     }
-    res.status(201).json({attendance:data,message:data.status==='approved'?'Successfully recorded!':'Attendance submitted for administrator review. Device verification is required.'});
+    if(data.error)throw Object.assign(fail(data.http_status||400,data.error),{attempts:data.attempts});
+    res.status(201).json({...data,message:data.attendance.status==='approved'?'Successfully recorded!':'Attendance submitted for administrator review. Device verification is required.'});
   }catch(e){next(e);}
 }
 export async function reviewRegistration(req,res,next){
   try{
-    const userId=validate(uuid,req.params.userId);const input=validate(z.object({decision:z.enum(['approved','rejected']),note:z.string().trim().min(1).max(1000)}),req.body);
+    const userId=validate(uuid,req.params.userId);const input=validate(reviewSchema,req.body);
     if(input.decision==='approved'){
       const {data,error}=await supabase.auth.admin.getUserById(userId);
       if(error)throw fail(503,'Unable to verify the registration email');
@@ -116,7 +122,7 @@ export async function securityDashboard(_req,res,next){
 }
 export async function reviewAttendance(req,res,next){
   try{
-    const id=validate(uuid,req.params.attendanceId);const input=validate(z.object({decision:z.enum(['approved','rejected']),note:z.string().trim().min(1).max(1000)}),req.body);
+    const id=validate(uuid,req.params.attendanceId);const input=validate(reviewSchema,req.body);
     const {data,error}=await supabase.from('attendance_logs').update({status:input.decision,review_note:input.note,reviewed_by:req.authUser.id,reviewed_at:new Date().toISOString()}).eq('id',id).eq('status','pending_review').select('id').maybeSingle();check(error);if(!data)throw fail(409,'Attendance already reviewed or not found');
     await writeAuditLog(req.authUser.id,`attendance.review_${input.decision}`,'attendance_log',id,{note:input.note});res.json({message:'Attendance reviewed'});
   }catch(e){next(e);}

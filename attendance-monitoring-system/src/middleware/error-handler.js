@@ -6,5 +6,5 @@ export function errorHandler(error, _req, res, _next) {
   const details = error.details ?? [];
 
   if (status === 500) console.error(error);
-  res.status(status).json({ error: { message, details } });
+  res.status(status).json({ error: { message, details }, ...(error.attempts ? { attempts: error.attempts } : {}) });
 }

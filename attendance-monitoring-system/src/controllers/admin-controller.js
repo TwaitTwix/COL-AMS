@@ -158,7 +158,7 @@ export async function listEvents(_req, res, next) {
   try {
     const { data, error } = await supabase
       .from("events")
-      .select("id, name, latitude, longitude, radius_meters, starts_at, ends_at, archived_at,institution,college")
+      .select("id, name, latitude, longitude, radius_meters, starts_at, ends_at, archived_at,institution,college,max_check_in_attempts")
       .order("starts_at", { ascending: false })
       .limit(100);
     if (error) throw error;

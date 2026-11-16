@@ -133,7 +133,7 @@ async function startCamera() {
     scanner = new Html5Qrcode("reader", { verbose: false });
     await scanner.start(
       { facingMode: "environment" },
-      { fps: 12, qrbox: { width: 230, height: 230 }, aspectRatio: 1.0 },
+      { fps: 12, qrbox: (width,height)=>{const side=Math.floor(Math.min(230,Math.min(width,height)*.72));return {width:side,height:side};}, aspectRatio: 1.0 },
       handleQrDetected,
       () => {},
     );
