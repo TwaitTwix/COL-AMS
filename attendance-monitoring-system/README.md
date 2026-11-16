@@ -2,6 +2,8 @@
 
 Node.js / Express, Supabase Auth and Postgres, private Storage, and a responsive browser interface for MCNP and ISAP.
 
+Live app: https://col-ams.vercel.app. Hosting details and remaining email redirect setup are in [DEPLOYMENT.md](DEPLOYMENT.md). Use Node.js 24.x for local development.
+
 ## Start locally
 
 From this folder run `npm install` once, copy `.env.example` to `.env` only if no local configuration exists, then run `npm run local`. You can also double-click `../Start-Attendance-System.cmd`. Keep the terminal open. The local app defaults to `http://127.0.0.1:3001`.

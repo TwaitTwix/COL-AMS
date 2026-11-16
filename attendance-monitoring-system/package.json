@@ -12,10 +12,11 @@
     "seed:demo": "node scripts/seed-demo-accounts.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": "24.x"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.119.0",
+    "@vercel/functions": "3.11.3",
     "docx": "^9.5.1",
     "dotenv": "^16.4.7",
     "exceljs": "^3.4.0",

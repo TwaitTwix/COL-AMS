@@ -6,7 +6,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   HOST: z.string().min(1).default("127.0.0.1"),
   DEVICE_SIGNING_SECRET: z.string().min(32).optional(),
-  PUBLIC_APP_URL: z.string().url().default('http://127.0.0.1:3001'),
+  PUBLIC_APP_URL: z.string().url().default(process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://127.0.0.1:3001'),
   SUPABASE_URL: z.string().url().optional().or(z.literal("")),
   SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),

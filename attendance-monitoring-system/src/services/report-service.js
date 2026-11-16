@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Worker } from "node:worker_threads";
+import { waitUntil } from '@vercel/functions';
 import { env } from "../config/env.js";
 import { reportSupabase } from "../config/supabase.js";
 import { writeAuditLog } from "./audit-service.js";
@@ -9,6 +10,8 @@ const queuedIds = new Set();
 let workerBusy = false;
 let queueInitialized = false;
 const SIGNED_URL_TTL_SECONDS = 10 * 60;
+const cloudJobs=new Map();
+const isVercel=()=>process.env.VERCEL==='1';
 
 const formats = {
   csv: { extension: "csv", contentType: "text/csv" },
@@ -38,15 +41,25 @@ function runWorker(format, eventId) {
       },
     });
     let settled = false;
+    const timeout=setTimeout(()=>{
+      if(settled)return;
+      settled=true;
+      void worker.terminate();
+      reject(new Error('Report generation exceeded the four-minute processing limit'));
+    },240_000);
+    timeout.unref?.();
     worker.once("message", (message) => {
+      clearTimeout(timeout);
       settled = true;
       if (message.ok) resolve({ buffer: Buffer.from(message.bytes), recordCount: message.recordCount });
       else reject(new Error(message.error || "Report generation failed"));
     });
     worker.once("error", (error) => {
+      clearTimeout(timeout);
       if (!settled) { settled = true; reject(error); }
     });
     worker.once("exit", (code) => {
+      clearTimeout(timeout);
       if (!settled) { settled = true; reject(new Error(`Report worker exited unexpectedly (${code})`)); }
     });
   });
@@ -66,6 +79,15 @@ function publicJob(job) {
 }
 
 function scheduleJob(jobId) {
+  if(isVercel()){
+    if(cloudJobs.has(jobId))return;
+    // Register with the current invocation before returning the HTTP response.
+    // Database claims prevent two scaled instances from exporting the same job.
+    const task=processJob(jobId).catch(error=>console.error(`Report job ${jobId} could not start:`,error.message)).finally(()=>cloudJobs.delete(jobId));
+    cloudJobs.set(jobId,task);
+    waitUntil(task);
+    return;
+  }
   if (queuedIds.has(jobId)) return;
   queuedIds.add(jobId);
   pendingJobs.push(jobId);
@@ -145,6 +167,7 @@ async function processQueue() {
 }
 
 export async function initializeReportQueue() {
+  if(isVercel())return;
   if (queueInitialized || !reportSupabase) return;
   queueInitialized = true;
   const staleBefore = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -186,11 +209,25 @@ export async function enqueueReport({ event_id, format }, requestedBy) {
 export async function getReportJob(id) {
   ensureReportConfiguration();
   const { data: job, error } = await reportSupabase.from("report_jobs")
-    .select("id, event_id, format, status, record_count, error, created_at, updated_at, file_path")
+    .select("id, event_id, format, status, record_count, error, created_at, updated_at, file_path, started_at")
     .eq("id", id)
     .maybeSingle();
   if (error) throw httpError(503, "Unable to read report job status");
   if (!job) return null;
+
+  if(isVercel()){
+    // A terminated invocation can leave a claim behind. Retry only after its
+    // entire five-minute platform lifetime has elapsed, never during a run.
+    if(job.status==='processing'&&(!job.started_at||Date.parse(job.started_at)<Date.now()-6*60_000)){
+      const {data:recovered,error:recoverError}=await reportSupabase.from('report_jobs')
+        .update({status:'queued',started_at:null,updated_at:new Date().toISOString()})
+        .eq('id',job.id).eq('status','processing').eq('updated_at',job.updated_at)
+        .select('id').maybeSingle();
+      if(recoverError)throw httpError(503,'Unable to recover the report job');
+      if(recovered)job.status='queued';
+    }
+    if(job.status==='queued')scheduleJob(job.id);
+  }
 
   let signedUrl;
   if (job.status === "completed" && job.file_path) {

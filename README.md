@@ -2,6 +2,8 @@
 
 Attendance management for MCNP and ISAP, built with Express and Supabase.
 
+Live website: https://col-ams.vercel.app
+
 The application source and setup instructions are in
 [attendance-monitoring-system](attendance-monitoring-system/README.md).
 

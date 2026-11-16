@@ -9,6 +9,7 @@ const app = express();
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 app.disable("x-powered-by");
+if(process.env.VERCEL==='1')app.set('trust proxy',1);
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.resolve(currentDir, "../public")));
 app.use("/api", apiRouter);

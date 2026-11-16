@@ -24,7 +24,7 @@
 
 ## Requires later human or deployment setup
 
-- [ ] Deploy the app and configure a real HTTPS domain so phone camera and location access work remotely.
+- [x] Deploy the app on Vercel with HTTPS at https://col-ams.vercel.app.
 - [ ] Configure production Supabase Auth email delivery and redirect URLs.
 - [ ] Verify real-inbox signup/password recovery and physical-phone camera/GPS at the venue.
 - [ ] Enable Supabase leaked-password protection in Auth settings.

@@ -17,7 +17,7 @@ export function resolveDevice(req, res) {
   const [id, signature] = raw.split('.');
   const valid = /^[a-f0-9-]{36}$/i.test(id || '') && equal(signature, sign(id));
   const deviceId = valid ? id : randomUUID();
-  if (!valid) res.append('Set-Cookie', `col_device=${deviceId}.${sign(deviceId)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000${req.secure ? '; Secure' : ''}`);
+  if (!valid) res.append('Set-Cookie', `col_device=${deviceId}.${sign(deviceId)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000${req.secure || process.env.VERCEL==='1' ? '; Secure' : ''}`);
   return createHash('sha256').update(deviceId).digest('hex');
 }
 export async function recordSession(req, res, accessToken) {
