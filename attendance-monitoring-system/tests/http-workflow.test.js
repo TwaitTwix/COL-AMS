@@ -19,7 +19,14 @@ test('live student/admin endpoints enforce roles and return the new dashboard',{
     const me=await fetch(base+'/api/auth/me',{headers});assert.equal(me.status,200);
     cookie=me.headers.get('set-cookie')?.split(';')[0]||cookie;
     headers.Cookie=cookie;
-    const payload=await me.json();assert.equal(payload.profile.role,account.role);assert.ok(payload.device.device_id);
+    const payload=await me.json();assert.equal(payload.profile.role,account.role);if(payload.privacy_required){
+      assert.equal(payload.device,null);
+      const path=account.role==='student'?'/api/student/dashboard':'/api/admin/security';
+      assert.equal((await fetch(base+path,{headers})).status,403);
+      assert.equal((await fetch(base+'/api/admin/manual-attendance',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:'{}'})).status,403);
+      await client.auth.signOut({scope:'local'});continue;
+    }
+    assert.ok(payload.device.device_id);
     if(account.role==='student'){
       const dashboard=await fetch(base+'/api/student/dashboard',{headers});assert.equal(dashboard.status,200);assert.ok(Array.isArray((await dashboard.json()).events));
       assert.equal((await fetch(base+'/api/admin/security',{headers})).status,403);

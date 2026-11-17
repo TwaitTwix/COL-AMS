@@ -1,3 +1,4 @@
+import { PRIVACY_VERSION } from "../config/privacy.js";
 import { authVerifier, supabase } from "../config/supabase.js";
 
 function sendError(res, status, message) {
@@ -7,7 +8,7 @@ function sendError(res, status, message) {
 async function loadOrCreateProfile(user) {
   const { data: existing, error: selectError } = await supabase
     .from("user_profiles")
-    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course")
+    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course, privacy_version, privacy_accepted_at")
     .eq("user_id", user.id)
     .maybeSingle();
   if (selectError) throw selectError;
@@ -18,7 +19,7 @@ async function loadOrCreateProfile(user) {
         .from("user_profiles")
         .update({ email })
         .eq("user_id", user.id)
-        .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course")
+        .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course, privacy_version, privacy_accepted_at")
         .single();
       if (updateError) throw updateError;
       return updated;
@@ -36,7 +37,7 @@ async function loadOrCreateProfile(user) {
 
   const { data: created, error: reloadError } = await supabase
     .from("user_profiles")
-    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course")
+    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course, privacy_version, privacy_accepted_at")
     .eq("user_id", user.id)
     .single();
   if (reloadError) throw reloadError;
@@ -91,6 +92,7 @@ export function requireRoles(...roles) {
         : "You do not have permission to use this feature";
       return sendError(res, 403, message);
     }
+    if(req.userProfile.privacy_version!==PRIVACY_VERSION)return sendError(res,403,'Accept the privacy notice before continuing');
     return next();
   }];
 }

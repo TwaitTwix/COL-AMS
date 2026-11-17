@@ -11,7 +11,7 @@ test('academic catalog exposes the supplied hierarchy and rejects invalid regist
   const cite=isap.find(c=>c.abbreviation==='CITE');
   assert.deepEqual(cite.courses,['Bachelor of Science in Computer Engineering','Bachelor of Science in Information Technology']);
   assert.equal(mcnp.some(c=>c.abbreviation==='CITE'),false);
-  const input={full_name:'Validation only',personal_id:'NOT-A-REAL-REGISTRATION',email:'validation-only@example.invalid',password:'Validation-only-123',institution:'ISAP',college:cite.name,course:'Bachelor of Science in Nursing'};
+  const input={full_name:'Validation only',personal_id:'NOT-A-REAL-REGISTRATION',email:'validation-only@example.invalid',password:'Validation-only-123',privacy_accepted:true,institution:'ISAP',college:cite.name,course:'Bachelor of Science in Nursing'};
   const invalid=await fetch(base+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)});
   assert.equal(invalid.status,400);
   assert.equal((await invalid.json()).error.message,'This course does not belong to the selected institution and college');

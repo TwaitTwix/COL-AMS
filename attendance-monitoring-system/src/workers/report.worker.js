@@ -157,7 +157,7 @@ async function fetchReportRows() {
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await client
       .from("attendance_logs")
-      .select("id, student_id, event_id, distance_from_venue_meters, checked_in_at")
+      .select("id, student_id, event_id, distance_from_venue_meters, checked_in_at, entry_method")
       .eq("event_id", workerData.eventId)
       .eq('status','approved')
       .order("checked_in_at", { ascending: true })
@@ -186,9 +186,9 @@ async function fetchReportRows() {
       student_number: student?.student_number || "",
       event_id: String(row.event_id),
       checked_in_at: row.checked_in_at || "",
-      distance_meters: Number.isFinite(Number(row.distance_from_venue_meters))
+      distance_meters: row.distance_from_venue_meters!==null && Number.isFinite(Number(row.distance_from_venue_meters))
         ? Number(row.distance_from_venue_meters)
-        : "",
+        : (row.entry_method==='manual'?"Manual / not measured":""),
     };
   });
 }

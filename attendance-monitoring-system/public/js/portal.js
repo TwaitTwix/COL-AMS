@@ -1,5 +1,6 @@
 import { bindAcademicSelects } from './academic-selects.js';
 import { bindRoleSearch } from './role-search.js';
+import { renderLogs,renderTracker,renderManualAttendance } from './admin-tools.js';
 import { requestDecisionNote } from './decision-dialog.js';
 const page=document.querySelector('#page-content');
 const nav=document.querySelector('#workspace-nav');
@@ -41,6 +42,9 @@ async function navigate(name,push=true){
   page.innerHTML='<p class="muted">Loading workspace…</p>';
   try{
     if(name==='dashboard')await (isAdmin()?adminDashboard(version):studentDashboard(version));
+    else if(name==='logs'&&isAdmin())await renderLogs(toolContext(version));
+    else if(name==='tracker'&&isAdmin())await renderTracker(toolContext(version));
+    else if(name==='manual'&&isAdmin())await renderManualAttendance(toolContext(version));
     else if(name==='verifications')await verifications(version);
     else if(name==='events')await eventManagement(version);
     else if(name==='roles'&&session.role==='main_admin')await roleManagement(version);
@@ -50,8 +54,9 @@ async function navigate(name,push=true){
     else throw new Error('This page is not available to your account');
   }catch(e){if(version===screen&&e.name!=='AbortError')page.innerHTML=heading('Unable to load this page',e.message)+'<button class="secondary-button" data-retry>Retry</button>';}
 }
+function toolContext(version){return {page,api,send,esc,date,heading,announce,current:()=>version===screen};}
 function setNav(){
-  const entries=isAdmin()?[['dashboard','Overview & security'],['verifications','User verifications'],['events','Events & geofencing'],['roster','Students & colleges'],['reports','Attendance reports'],...(session.role==='main_admin'?[['roles','Manage role access']]:[])]:[['dashboard','Campus events'],['history','My attendance']];
+  const entries=isAdmin()?[['dashboard','Overview & reviews'],['logs','Activity logs'],['tracker','Account tracker'],['manual','Manual attendance'],['verifications','User verifications'],['events','Events & geofencing'],['roster','Students & colleges'],['reports','Attendance reports'],...(session.role==='main_admin'?[['roles','Manage role access']]:[])]:[['dashboard','Campus events'],['history','My attendance']];
   nav.innerHTML=entries.map(([key,label])=>`<button type="button" data-page="${key}">${label}</button>`).join('');
 }
 window.addEventListener('app:session',event=>{
@@ -91,7 +96,7 @@ async function studentDashboard(version){
 }
 async function historyView(version){
   const data=await api('/api/student/dashboard');if(version!==screen)return;
-  page.innerHTML=heading('My attendance','Your recent attendance submissions and administrator decisions.')+`<section class="workspace-card">${data.attendance.length?data.attendance.map(a=>`<article class="review-row"><div><strong>${esc(a.events?.name||'Event')}</strong><p>${esc(date(a.checked_in_at))} · ${a.distance_from_venue_meters} m from venue</p>${a.review_note?`<p>${esc(a.review_note)}</p>`:''}</div><span class="status-badge ${a.status==='approved'?'good':'warning'}">${esc(a.status.replaceAll('_',' '))}</span></article>`).join(''):'<p class="muted">No attendance recorded yet.</p>'}</section>`;
+  page.innerHTML=heading('My attendance','Your recent attendance submissions and administrator decisions.')+`<section class="workspace-card">${data.attendance.length?data.attendance.map(a=>`<article class="review-row"><div><strong>${esc(a.events?.name||'Event')}</strong><p>${esc(date(a.checked_in_at))} · ${a.distance_from_venue_meters==null?'Manual verification · GPS not measured':a.distance_from_venue_meters+' m from venue'}</p>${a.review_note?`<p>${esc(a.review_note)}</p>`:''}</div><span class="status-badge ${a.status==='approved'?'good':'warning'}">${esc(a.status.replaceAll('_',' '))}</span></article>`).join(''):'<p class="muted">No attendance recorded yet.</p>'}</section>`;
 }
 async function openStudentEvent(id,push=true){
   const version=++screen;clearInterval(refreshTimer);await stopCamera();if(version!==screen)return;
@@ -159,12 +164,12 @@ async function getUsers(){const data=await api('/api/admin/users');users=data.us
 async function adminDashboard(version){
   const [security]=await Promise.all([api('/api/admin/security'),getUsers()]);if(version!==screen)return;
   const identity=id=>esc(users.find(u=>u.user_id===id)?.full_name||users.find(u=>u.user_id===id)?.email||id||'Unknown');
-  page.innerHTML=heading('Attendance, with accountability.','Review login devices, registration requests, and attendance that needs a decision.')+
+  page.innerHTML=heading('Attendance, with accountability.','Review registrations and attendance decisions. Open Activity logs or Account tracker for detailed records.')+
     `<div class="summary-grid"><div class="summary-tile"><small>REGISTRATION REQUESTS</small><strong>${users.filter(u=>u.approval_status==='pending').length}</strong><span>Waiting for identity review</span></div><div class="summary-tile"><small>DEVICE INCIDENTS</small><strong>${security.incidents.filter(i=>i.status==='open').length}</strong><span>Changed or shared browsers</span></div><div class="summary-tile"><small>ATTENDANCE TO REVIEW</small><strong>${security.attendance.length}</strong><span>Excluded from attendance percentages</span></div></div>
     <section class="workspace-card"><h2>Notifications <span class="count-pill">${security.notifications.filter(n=>!n.read_at).length} unread</span></h2><div class="notification-list">${security.notifications.length?security.notifications.map(n=>`<article class="review-row"><div><strong>${identity(n.user_id)}</strong><p>${esc(n.message)}</p><small>${esc(date(n.created_at))}</small></div>${n.read_at?'<span class="muted">Read</span>':`<button class="small-action" data-read-notification="${n.id}">Mark read</button>`}</article>`).join(''):'<p class="muted">No notifications.</p>'}</div></section>
     <section class="workspace-card"><h2>Attendance requiring a decision</h2>${security.attendance.length?security.attendance.map(a=>`<article class="review-row"><div><strong>${esc(a.students?.name)} · ${esc(a.events?.name)}</strong><p>Potential malicious attendance · ${esc(a.risk_reasons.join(', '))}</p><small>${a.distance_from_venue_meters} m from venue · Browser ${esc(a.device_hash?.slice(0,12))}</small></div><div class="row-actions"><button class="small-action" data-review-attendance="${a.id}" data-decision="approved">Accept</button><button class="small-action danger" data-review-attendance="${a.id}" data-decision="rejected">Reject</button></div></article>`).join(''):'<p class="muted">No attendance awaiting review.</p>'}</section>
     <section class="workspace-card"><h2>Device incidents</h2>${security.incidents.length?security.incidents.map(i=>`<article class="review-row"><div><strong>${identity(i.user_id)}</strong><p>${i.changed_device?'Changed browser device. ':''}${i.shared_device?'Browser used by another account. ':''}Penalty: ${i.penalty_points} point.</p><small>Device ${esc(i.device_hash.slice(0,12))} · ${esc(i.status)} · ${esc(date(i.created_at))}</small></div>${i.status==='open'?`<div class="row-actions"><button class="small-action" data-review-device="${i.id}" data-decision="trusted">Trust this browser</button><button class="small-action" data-review-device="${i.id}" data-decision="dismissed">Dismiss alert</button></div>`:''}</article>`).join(''):'<p class="muted">No device incidents.</p>'}</section>
-    <section class="workspace-card"><h2>Login history</h2><p class="muted">Browser identifiers are supporting signals. MAC addresses are not available to websites. Different browsers and cleared cookies appear as different devices.</p><div class="table-scroll"><table><thead><tr><th>User / time</th><th>Browser device</th><th>Network address</th><th>Browser details</th><th>Risk</th></tr></thead><tbody>${security.logins.map(l=>`<tr><td>${identity(l.user_id)}<small>${esc(date(l.created_at))}</small></td><td>${esc(l.device_hash.slice(0,12))}</td><td>${esc(l.ip_address)}</td><td class="browser-detail">${esc(l.user_agent)}</td><td>${l.shared_device?'Shared ':''}${l.changed_device?'Changed':''}${!l.shared_device&&!l.changed_device?'Registered':''}</td></tr>`).join('')}</tbody></table></div></section>`;
+    `;
   refreshTimer=setInterval(()=>{if(!document.hidden&&!document.querySelector('dialog[open]'))void navigate('dashboard',false);},60000);
 }
 async function verifications(version){
@@ -220,6 +225,7 @@ document.querySelector('#close-qr').addEventListener('click',()=>dialog.close())
 document.querySelector('#rotate-qr').addEventListener('click',async()=>{if(!qrEvent)return;try{await send(`/api/admin/events/${qrEvent}/qr/rotate`,{});const id=qrEvent;dialog.close();await displayQr(id);announce('Previous codes revoked.');}catch(e){announce(e.message,true);}});
 page.addEventListener('click',async event=>{
   const b=event.target.closest('button');if(!b||b.disabled)return;
+  if(b.dataset.trackUser&&isAdmin()){const version=++screen;clearInterval(refreshTimer);await stopCamera();currentPage='tracker';try{await renderTracker(toolContext(version),b.dataset.trackUser);}catch(e){announce(e.message,true);}return;}
   if(b.hasAttribute('data-retry')){void navigate(currentPage,false);return;}
   if(b.hasAttribute('data-back-events')){void navigate('dashboard');return;}
   if(b.dataset.openEvent){void openStudentEvent(b.dataset.openEvent);return;}

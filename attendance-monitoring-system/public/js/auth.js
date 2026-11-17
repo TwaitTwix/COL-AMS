@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.119.0';
 import { requireAuthClient } from './auth-guard.js';
+import { strongPassword, PASSWORD_HELP } from './password-policy.js';
 import { bindAcademicSelects } from './academic-selects.js';
 
 const panel=document.querySelector('#auth-panel');
@@ -9,7 +10,7 @@ const signout=document.querySelector('#sign-out');
 const message=document.querySelector('#auth-message');
 const forgot=document.querySelector('#forgot-password');
 const refresh=document.querySelector('#refresh-approval');
-const forms=Object.fromEntries(['signin','signup','recovery','update-password'].map(name=>[name,document.querySelector('#'+name+'-form')]));
+const forms=Object.fromEntries(['signin','signup','recovery','update-password','privacy'].map(name=>[name,document.querySelector('#'+name+'-form')]));
 let client=null;
 let revision=0;
 let recovery=new URLSearchParams(location.hash.slice(1)).get('type')==='recovery';
@@ -24,9 +25,10 @@ function note(text,state='info'){message.textContent=text;message.dataset.state=
 function view(name,text=''){
   completion.hidden=true;
   for(const [key,form] of Object.entries(forms))form.hidden=key!==name;
-  document.querySelector('#auth-tabs').hidden=['recovery','update-password'].includes(name);
+  document.querySelector('#auth-tabs').hidden=['recovery','update-password','privacy'].includes(name);
   document.querySelectorAll('[data-auth-mode]').forEach(b=>b.classList.toggle('active',b.dataset.authMode===name));
-  const copy={signin:['Welcome back.','Sign in to your campus attendance account.'],signup:['Your campus. Your account.','Register with your personal ID and a working email.'],recovery:['Forgot your password?','We will send a secure password reset link.'],'update-password':['Choose a new password.','Finish your password recovery.']}[name];
+  document.querySelector('#resend-verification').hidden=name==='privacy';
+  const copy={privacy:['Your privacy, your choice.','Please review the attendance privacy notice.'],signin:['Welcome back.','Sign in to your campus attendance account.'],signup:['Your campus. Your account.','Register with your personal ID and a working email.'],recovery:['Forgot your password?','We will send a secure password reset link.'],'update-password':['Choose a new password.','Finish your password recovery.']}[name];
   document.querySelector('#auth-title').textContent=copy[0];document.querySelector('#auth-copy').textContent=copy[1];note(text);
 }
 function closeWorkspace(){workspace.hidden=true;panel.hidden=false;window.dispatchEvent(new CustomEvent('app:session',{detail:null}));}
@@ -45,6 +47,7 @@ async function verify(session){
   }
   badge.hidden=false;badge.textContent=(data.profile.full_name||data.user.email)+' · '+data.profile.role.replaceAll('_',' ');
   signout.hidden=false;
+  if(data.privacy_required){closeWorkspace();refresh.hidden=true;view('privacy');return;}
   if(data.profile.approval_status!=='approved'||data.profile.role==='pending'){
     closeWorkspace();refresh.hidden=false;
     view('signin',data.profile.approval_status==='rejected'?'Registration declined. '+(data.profile.review_note||'Contact an administrator.'):'Email verified. Your personal ID is awaiting administrator approval.');
@@ -80,12 +83,19 @@ handle(forms.signin,async(data,auth)=>{
   failedAttempts=0;sessionStorage.removeItem('col-failed-attempts');forgot.hidden=true;
 });
 handle(forms.signup,async data=>{
+  if(!strongPassword(String(data.get('password'))))throw new Error(PASSWORD_HELP);
   note('Creating your account…');
-  const response=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(data))});
+  const response=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...Object.fromEntries(data),privacy_accepted:data.get('privacy_accepted')==='on'})});
   const result=await response.json();
   if(!response.ok)throw new Error(result.error?.details?.[0]?.message||result.error?.message||'Registration failed');
   forms.signin.elements.email.value=String(data.get('email'));
   view('signin',result.message);
+});
+handle(forms.privacy,async(data,auth)=>{
+  const {data:{session}}=await auth.auth.getSession();
+  const response=await fetch('/api/auth/privacy-consent',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({accepted:data.get('accepted')==='on',version:'2026-11-17'})});
+  const result=await response.json();if(!response.ok)throw new Error(result.error?.message||'Unable to save consent');
+  await verify(session);
 });
 handle(completion,async(data,auth)=>{
   const {data:{session}}=await auth.auth.getSession();
@@ -99,7 +109,10 @@ handle(forms.recovery,async(data,auth)=>{
 });
 handle(forms['update-password'],async(data,auth)=>{
   if(data.get('password')!==data.get('confirm_password'))throw new Error('Passwords do not match');
-  const {error}=await auth.auth.updateUser({password:String(data.get('password'))});if(error)throw error;
+  const password=String(data.get('password'));if(!strongPassword(password))throw new Error(PASSWORD_HELP);
+  const {data:{session}}=await auth.auth.getSession();
+  const response=await fetch('/api/auth/password',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({password})});
+  const result=await response.json();if(!response.ok)throw new Error(result.error?.details?.[0]?.message||result.error?.message||'Unable to update password');
   recovery=false;await auth.auth.signOut({scope:'local'});signedOut('Password updated. Sign in with your new password.');
 });
 document.querySelector('#resend-verification').addEventListener('click',async()=>{

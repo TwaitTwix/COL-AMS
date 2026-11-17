@@ -6,6 +6,9 @@ import { z } from 'zod';
 import { validate } from '../utils/validate.js';
 import { recordSession } from '../services/security-service.js';
 import { validateAcademicSelection } from '../services/academic-service.js';
+import { passwordSchema } from '../validators/password-validator.js';
+import { PRIVACY_VERSION } from '../config/privacy.js';
+import { writeAuditLog } from '../services/audit-service.js';
 
 export function getPublicAuthConfig(_req, res) {
   if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) {
@@ -20,19 +23,45 @@ export function getPublicAuthConfig(_req, res) {
 
 export const getCurrentUser = [authenticateUser, async (req, res, next) => {
   try {
-  const device = await recordSession(req, res, req.get('authorization').replace(/^Bearer\s+/i, ''));
+  const privacyRequired=req.userProfile.privacy_version!==PRIVACY_VERSION;
+  const device = privacyRequired?null:await recordSession(req, res, req.get('authorization').replace(/^Bearer\s+/i, ''));
   res.set('Cache-Control','no-store').status(200).json({
     user: { id: req.authUser.id, email: req.authUser.email },
     profile: req.userProfile,
     device,
+    privacy_required:privacyRequired,
+    privacy_version:PRIVACY_VERSION,
   });
   } catch(error) { next(error); }
 }];
 
+export async function acceptPrivacy(req,res,next){
+  try{
+    validate(z.object({accepted:z.literal(true),version:z.literal(PRIVACY_VERSION)}),req.body);
+    if(req.userProfile.privacy_version!==PRIVACY_VERSION){
+      const {error}=await supabase.from('user_profiles').update({privacy_version:PRIVACY_VERSION,privacy_accepted_at:new Date().toISOString()}).eq('user_id',req.authUser.id);
+      if(error)throw error;
+      await writeAuditLog(req.authUser.id,'privacy.accepted','user_profile',req.authUser.id,{version:PRIVACY_VERSION});
+    }
+    res.json({message:'Privacy consent recorded',version:PRIVACY_VERSION});
+  }catch(e){next(e);}
+}
+export async function updatePassword(req,res,next){
+  try{
+    const {password}=validate(z.object({password:passwordSchema}),req.body);
+    // Use the user's token so Auth keeps its normal recovery/reauthentication
+    // protections. A service-role password update would bypass those checks.
+    const response=await fetch(`${env.SUPABASE_URL.replace(/\/$/,'')}/auth/v1/user`,{method:'PUT',headers:{apikey:env.SUPABASE_PUBLISHABLE_KEY,Authorization:req.get('authorization'),'Content-Type':'application/json'},body:JSON.stringify({password})});
+    const result=await response.json();
+    if(!response.ok)throw Object.assign(new Error(result.msg||result.message||'Unable to update password'),{status:response.status>=500?503:400});
+    res.json({message:'Password updated'});
+  }catch(e){next(e);}
+}
+
 export async function register(req,res,next) {
   try {
     if(!supabase || !env.SUPABASE_PUBLISHABLE_KEY)throw Object.assign(new Error('Registration is not configured'),{status:503});
-    const input=validate(z.object({full_name:z.string().trim().min(1).max(120),personal_id:z.string().trim().min(1).max(40),email:z.string().email().max(254),password:z.string().min(10).max(128),institution:z.enum(['MCNP','ISAP']),college:z.string().trim().min(1).max(100),course:z.string().trim().min(1).max(160)}),req.body);
+    const input=validate(z.object({full_name:z.string().trim().min(1).max(120),personal_id:z.string().trim().min(1).max(40),email:z.string().email().max(254),password:passwordSchema,privacy_accepted:z.literal(true),institution:z.enum(['MCNP','ISAP']),college:z.string().trim().min(1).max(100),course:z.string().trim().min(1).max(160)}),req.body);
     await validateAcademicSelection(input,{requireCourse:true});
     const client=createClient(env.SUPABASE_URL,env.SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
     const {data,error}=await client.auth.signUp({email:input.email,password:input.password,options:{emailRedirectTo:env.PUBLIC_APP_URL,data:{full_name:input.full_name}}});
@@ -40,7 +69,7 @@ export async function register(req,res,next) {
     // Supabase may return an obfuscated user for an already-registered email.
     // Never overwrite an existing profile or trust its returned identity.
     if(data.user?.identities?.length){
-      const {error:profileError}=await supabase.from('user_profiles').upsert({user_id:data.user.id,email:input.email,full_name:input.full_name,personal_id:input.personal_id,institution:input.institution,college:input.college,course:input.course,role:'pending',approval_status:'pending'},{onConflict:'user_id',ignoreDuplicates:true});
+      const {error:profileError}=await supabase.from('user_profiles').upsert({user_id:data.user.id,email:input.email,full_name:input.full_name,personal_id:input.personal_id,institution:input.institution,college:input.college,course:input.course,role:'pending',approval_status:'pending',privacy_version:PRIVACY_VERSION,privacy_accepted_at:new Date().toISOString()},{onConflict:'user_id',ignoreDuplicates:true});
       if(profileError){
         // Never delete an Auth identity from a registration retry. Existing
         // unconfirmed identities may be returned by the Auth service as well.

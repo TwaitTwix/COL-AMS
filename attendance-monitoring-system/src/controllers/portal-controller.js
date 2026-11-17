@@ -5,6 +5,7 @@ import { validate } from '../utils/validate.js';
 import { recordSession, createEventQr, verifyEventQr } from '../services/security-service.js';
 import { writeAuditLog } from '../services/audit-service.js';
 import { validateAcademicSelection } from '../services/academic-service.js';
+import { PRIVACY_VERSION } from '../config/privacy.js';
 
 export const uuid = z.string().uuid();
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -39,7 +40,7 @@ export async function dashboard(req,res,next) {
   try {
     const {data:events,error}=await supabase.from('events').select('id,name,starts_at,ends_at,radius_meters,institution,college').is('archived_at',null).gte('ends_at',new Date().toISOString()).order('starts_at').limit(100);check(error);
     const {data:student,error:studentError}=req.userProfile.student_id ? await supabase.from('students').select('institution,college,course,archived_at').eq('id',req.userProfile.student_id).maybeSingle() : {data:null};check(studentError);
-    const {data:attendance,error:attendanceError}=req.userProfile.student_id ? await supabase.from('attendance_logs').select('id,event_id,status,checked_in_at,review_note,distance_from_venue_meters,events(name)').eq('student_id',req.userProfile.student_id).order('checked_in_at',{ascending:false}).limit(100) : {data:[]};check(attendanceError);
+    const {data:attendance,error:attendanceError}=req.userProfile.student_id ? await supabase.from('attendance_logs').select('id,event_id,status,checked_in_at,review_note,distance_from_venue_meters,entry_method,events(name)').eq('student_id',req.userProfile.student_id).order('checked_in_at',{ascending:false}).limit(100) : {data:[]};check(attendanceError);
     const now=Date.now();
     res.json({profile:req.userProfile,student,server_time:new Date(now).toISOString(),events:events.map(e=>({...e,opens_at:new Date(Date.parse(e.starts_at)-3600000).toISOString(),is_open:now>=Date.parse(e.starts_at)-3600000,eligible:!student?.archived_at&&(!e.institution||e.institution===student?.institution)&&(!e.college||e.college===student?.college)})),attendance});
   } catch(e){next(e);}
@@ -102,6 +103,7 @@ export async function reviewRegistration(req,res,next){
 }
 export async function completeRegistration(req,res,next){
   try{
+    if(req.userProfile.privacy_version!==PRIVACY_VERSION)throw fail(403,'Accept the privacy notice before continuing');
     const input=validate(z.object({full_name:z.string().trim().min(1).max(120),personal_id:z.string().trim().min(1).max(40),institution:z.enum(['MCNP','ISAP']),college:z.string().trim().min(1).max(100),course:z.string().trim().min(1).max(160)}),req.body);
     await validateAcademicSelection(input,{requireCourse:true});
     const {data,error}=await supabase.from('user_profiles').update(input).eq('user_id',req.authUser.id).eq('approval_status','pending').eq('role','pending').select('user_id').maybeSingle();

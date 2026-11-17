@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { createCollege,createCourse,eventQr,rotateQr,eventStatistics,reviewRegistration,securityDashboard,reviewAttendance,reviewDevice,readNotification,listNotifications } from '../controllers/portal-controller.js';
 
 const router = Router();
+import { accountActivity,manualAttendance } from '../controllers/account-activity-controller.js';
 for(const name of ['userId','studentId','eventId','attendanceId','incidentId','notificationId'])router.param(name,(_req,_res,next,value)=>{
   try{validate(z.string().uuid(),value);next();}catch(error){next(error);}
 });
@@ -28,6 +29,8 @@ const officerAccess = [
   rateLimit({ max: 90, bucket: "admin-management-user", key: (req) => req.authUser.id }),
 ];
 router.get("/users", ...officerAccess, listManagedUsers);
+router.get('/users/:userId/activity',...officerAccess,accountActivity);
+router.post('/manual-attendance',...officerAccess,manualAttendance);
 router.get("/audit-logs", ...officerAccess, listAuditLogs);
 router.get('/security',...officerAccess,securityDashboard);
 router.get('/notifications',...officerAccess,listNotifications);

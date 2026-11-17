@@ -35,7 +35,8 @@
         <label class="auth-field">WORKING EMAIL<input name="email" type="email" autocomplete="email" required></label>
         <div class="coordinate-fields"><label class="auth-field">INSTITUTION<select name="institution" required><option value="MCNP">MCNP</option><option value="ISAP">ISAP</option></select></label><label class="auth-field">COLLEGE<select name="college" required></select></label></div>
         <label class="auth-field">COURSE<select name="course" required></select></label>
-        <label class="auth-field">PASSWORD<input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required><small>At least 10 characters.</small></label>
+        <label class="auth-field">PASSWORD<input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required><small>10–128 characters, with uppercase and lowercase letters, a number, and a special character.</small></label>
+        <label class="consent-check"><input name="privacy_accepted" type="checkbox" required><span>I have read the <a href="/privacy.html" target="_blank" rel="noopener">privacy notice</a> and consent to the described use of my data for campus attendance and account security.</span></label>
         <p class="auth-footnote">Verify your email, then wait for an administrator to verify your student ID. Login devices and attendance locations are recorded. A changed or shared browser device adds one penalty point and requires attendance review.</p>
         <button class="auth-submit" type="submit">Create account →</button>
       </form>
@@ -44,7 +45,7 @@
         <button class="auth-submit" type="submit">Send password reset email →</button><button type="button" class="text-button" data-auth-mode="signin">Back to sign in</button>
       </form>
       <form id="update-password-form" class="auth-form" hidden>
-        <label class="auth-field">NEW PASSWORD<input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required></label>
+        <label class="auth-field">NEW PASSWORD<input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required><small>10–128 characters, with uppercase and lowercase letters, a number, and a special character.</small></label>
         <label class="auth-field">CONFIRM PASSWORD<input name="confirm_password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required></label>
         <button class="auth-submit" type="submit">Update password →</button>
       </form>
@@ -55,6 +56,13 @@
         <label class="auth-field">COLLEGE<select name="college" required></select></label>
         <label class="auth-field">COURSE<select name="course" required></select></label>
         <button type="submit" class="auth-submit">Complete registration details →</button>
+      </form>
+      <form id="privacy-form" class="auth-form" hidden>
+        <p class="muted">Before continuing, review how COL AMS uses account, browser device, and attendance location data. Your choice will be recorded.</p>
+        <a class="secondary-button privacy-link" href="/privacy.html" target="_blank" rel="noopener">Read the privacy notice ↗</a>
+        <label class="consent-check"><input name="accepted" type="checkbox" required><span>I have read the notice and consent to the described use of my data for campus attendance and account security.</span></label>
+        <button class="auth-submit" type="submit">Accept and continue →</button>
+        <p class="muted">You may decline by signing out. Contact campus administration about alternative attendance arrangements.</p>
       </form>
       <div id="auth-message" class="auth-message" role="status" aria-live="polite" hidden></div>
       <button id="resend-verification" class="text-button" type="button">Resend verification email</button>
@@ -68,7 +76,7 @@
   </div>
   <div id="toast" role="status" aria-live="polite" hidden></div>
   <dialog id="qr-dialog"><div class="card-heading"><h2 id="qr-title">Event QR</h2><button id="close-qr" class="small-action">Close</button></div><div id="event-qr" class="student-qr"></div><p id="qr-expiry"></p><p class="muted">Display this code at the venue. It refreshes automatically and expires after five minutes.</p><button id="rotate-qr" class="secondary-button">Revoke previous codes</button></dialog>
-  <footer><span>COL · ATTENDANCE MANAGEMENT SYSTEM</span><span>MCNP / ISAP</span></footer>
+  <footer><span>COL · ATTENDANCE MANAGEMENT SYSTEM</span><a href="/privacy.html" target="_blank" rel="noopener">Privacy notice</a><span>MCNP / ISAP</span></footer>
 </div>
 </body>
 </html>
