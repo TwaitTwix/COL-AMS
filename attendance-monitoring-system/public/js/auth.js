@@ -1,9 +1,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.119.0';
 import { requireAuthClient } from './auth-guard.js';
 import { strongPassword, PASSWORD_HELP } from './password-policy.js';
+import { enhancePasswordFields } from './password-visibility.js';
 import { bindAcademicSelects } from './academic-selects.js';
 
 const panel=document.querySelector('#auth-panel');
+enhancePasswordFields(document);
 const workspace=document.querySelector('#workspace');
 const badge=document.querySelector('#account-badge');
 const signout=document.querySelector('#sign-out');

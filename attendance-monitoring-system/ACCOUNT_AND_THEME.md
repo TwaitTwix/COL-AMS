@@ -1,5 +1,7 @@
 # Account password settings and appearance
 
+All sign-in, registration, recovery and account password fields now include an independent right-side eye button. Each starts masked, exposes an accessible Show/Hide label, reserves text padding, and masks again on form submit/reset. Toggling visibility does not submit the form or copy credentials into storage or other DOM text.
+
 Clicking the signed-in account name opens `/account`, a separate workspace page that survives direct navigation/reload and browser back/forward. It shows only the current account's name/email/role and a password form. It is available after the normal approval/privacy workspace gates. Password recovery remains available separately for users who do not remember their current password.
 
 The owner enters current password, a different strong new password, and confirmation. Both browser and API validate the new-password policy. `/api/auth/change-password` authenticates the caller, verifies the current password using a separate nonpersistent Auth client, confirms the verified identity equals the authenticated caller, and updates using the owner's original token. It never accepts a target account ID or performs a privileged admin reset. Provider reauthentication protections remain active. The temporary verification session is signed out in `finally`; incorrect credentials, provider throttling, and network failures are handled without changing the password. The API is limited to five attempts per fifteen minutes per account.
