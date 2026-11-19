@@ -1,5 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { createClient } from "@supabase/supabase-js";
+import { reportRole } from "../utils/report-role.js";
 
 const PAGE_SIZE = 1000;
 const STUDENT_BATCH_SIZE = 400;
@@ -29,6 +30,7 @@ async function buildCsv(rows) {
   sheet.columns = [
     { header: "Student", key: "student_name", width: 28 },
     { header: "Student number", key: "student_number", width: 20 },
+    { header: "Role (current)", key: "role", width: 24 },
     { header: "Event ID", key: "event_id", width: 26 },
     { header: "Checked in at (UTC)", key: "checked_in_at", width: 28 },
     { header: "Distance from venue (m)", key: "distance_meters", width: 25 },
@@ -47,6 +49,7 @@ async function buildXlsx(rows) {
   sheet.columns = [
     { header: "Student", key: "student_name", width: 28 },
     { header: "Student number", key: "student_number", width: 20 },
+    { header: "Role (current)", key: "role", width: 24 },
     { header: "Event ID", key: "event_id", width: 26 },
     { header: "Checked in at (UTC)", key: "checked_in_at", width: 28 },
     { header: "Distance from venue (m)", key: "distance_meters", width: 25 },
@@ -73,10 +76,11 @@ async function buildPdf(rows, eventId) {
     document.moveDown(1);
 
     const columns = [
-      { label: "Student", key: "student_name", width: 120 },
-      { label: "Number", key: "student_number", width: 83 },
-      { label: "Checked in (UTC)", key: "checked_in_at", width: 155 },
-      { label: "Distance m", key: "distance_meters", width: 90 },
+      { label: "Student", key: "student_name", width: 105 },
+      { label: "Number", key: "student_number", width: 80 },
+      { label: "Role (current)", key: "role", width: 100 },
+      { label: "Checked in (UTC)", key: "checked_in_at", width: 125 },
+      { label: "Distance m", key: "distance_meters", width: 100 },
     ];
     const tableWidth = columns.reduce((sum, column) => sum + column.width, 0);
     const drawHeader = () => {
@@ -113,8 +117,9 @@ async function buildPdf(rows, eventId) {
     const range = document.bufferedPageRange();
     for (let pageIndex = range.start; pageIndex < range.start + range.count; pageIndex += 1) {
       document.switchToPage(pageIndex);
-      document.fontSize(8).fillColor("#7c8790")
-        .text(`Page ${pageIndex + 1} of ${range.count}`, 42, document.page.height - 30, { align: "right" });
+      const footer=`Page ${pageIndex + 1} of ${range.count}`;
+      document.fontSize(8).fillColor("#7c8790");
+      document.text(footer,document.page.width-42-document.widthOfString(footer),document.page.height-30,{lineBreak:false});
     }
     document.end();
   });
@@ -122,7 +127,7 @@ async function buildPdf(rows, eventId) {
 
 async function buildDocx(rows, eventId) {
   const { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, WidthType, HeadingLevel } = await import("docx");
-  const headers = ["Student", "Student number", "Event ID", "Checked in at (UTC)", "Distance from venue (m)"];
+  const headers = ["Student", "Student number", "Role (current)", "Event ID", "Checked in at (UTC)", "Distance from venue (m)"];
   const tableRows = [
     new TableRow({
       tableHeader: true,
@@ -132,7 +137,7 @@ async function buildDocx(rows, eventId) {
       })),
     }),
     ...rows.map((row) => new TableRow({
-      children: ["student_name", "student_number", "event_id", "checked_in_at", "distance_meters"].map((key) =>
+      children: ["student_name", "student_number", "role", "event_id", "checked_in_at", "distance_meters"].map((key) =>
         new TableCell({ children: [new Paragraph(safeText(row[key]))] })),
     })),
   ];
@@ -157,7 +162,7 @@ async function fetchReportRows() {
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await client
       .from("attendance_logs")
-      .select("id, student_id, event_id, distance_from_venue_meters, checked_in_at, entry_method")
+      .select("id, student_id, user_id, event_id, distance_from_venue_meters, checked_in_at, entry_method")
       .eq("event_id", workerData.eventId)
       .eq('status','approved')
       .order("checked_in_at", { ascending: true })
@@ -179,11 +184,22 @@ async function fetchReportRows() {
     for (const student of data || []) studentsById.set(String(student.id), student);
   }
 
+  const profilesByUser=new Map(),profilesByStudent=new Map();
+  for(let start=0;start<studentIds.length;start+=STUDENT_BATCH_SIZE){
+    const {data,error}=await client.from("user_profiles").select("user_id,student_id,role").in("student_id",studentIds.slice(start,start+STUDENT_BATCH_SIZE));
+    if(error)throw error;for(const profile of data||[])profilesByStudent.set(profile.student_id,profile);
+  }
+  const userIds=[...new Set(attendance.map(row=>row.user_id).filter(Boolean))];
+  for(let start=0;start<userIds.length;start+=STUDENT_BATCH_SIZE){
+    const {data,error}=await client.from("user_profiles").select("user_id,student_id,role").in("user_id",userIds.slice(start,start+STUDENT_BATCH_SIZE));
+    if(error)throw error;for(const profile of data||[])profilesByUser.set(profile.user_id,profile);
+  }
   return attendance.map((row) => {
     const student = studentsById.get(String(row.student_id));
     return {
       student_name: student?.name || "Student unavailable",
       student_number: student?.student_number || "",
+      role:reportRole(row,profilesByUser,profilesByStudent),
       event_id: String(row.event_id),
       checked_in_at: row.checked_in_at || "",
       distance_meters: row.distance_from_venue_meters!==null && Number.isFinite(Number(row.distance_from_venue_meters))
@@ -193,11 +209,17 @@ async function fetchReportRows() {
   });
 }
 
-try {
+export async function buildReport(format,rows,eventId){
+  const output=await builders[format](rows,eventId);
+  const preview=format==="pdf"?output:await buildPdf(rows,eventId);
+  return {output,preview};
+}
+
+if(parentPort)try {
   const rows = await fetchReportRows();
-  const output = await builders[workerData.format](rows, workerData.eventId);
+  const {output,preview:pdfPreview}=await buildReport(workerData.format,rows,workerData.eventId);
   const transferable = Uint8Array.from(output);
-  const preview=workerData.format==='pdf'?null:Uint8Array.from(await buildPdf(rows,workerData.eventId));
+  const preview=workerData.format==='pdf'?null:Uint8Array.from(pdfPreview);
   parentPort.postMessage({ ok: true, bytes: transferable, previewBytes:preview, recordCount: rows.length }, preview?[transferable.buffer,preview.buffer]:[transferable.buffer]);
 } catch (error) {
   parentPort.postMessage({ ok: false, error: error?.message || "Report build failed" });
