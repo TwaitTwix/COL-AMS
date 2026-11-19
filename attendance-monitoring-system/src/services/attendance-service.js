@@ -43,11 +43,12 @@ export async function checkIn({ student_token, event_id, latitude, longitude }, 
 
   const { data: event, error: eventError } = await supabase
     .from("events")
-    .select("id, latitude, longitude, radius_meters, starts_at, ends_at, archived_at")
+    .select("id, latitude, longitude, radius_meters, starts_at, ends_at, archived_at, checkpoints")
     .eq("id", event_id)
     .maybeSingle();
   throwIfSupabaseError(eventError);
   if (!event) throw httpError(404, "Event not found");
+  if(event.checkpoints?.length>1)throw httpError(400,'Use Manual attendance and choose an event checkpoint');
   if (event.archived_at) throw httpError(400, "Event is archived and is not accepting check-ins");
 
   const centerLatitude = Number(event.latitude);

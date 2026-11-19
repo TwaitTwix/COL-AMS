@@ -31,6 +31,7 @@ async function buildCsv(rows) {
     { header: "Student", key: "student_name", width: 28 },
     { header: "Student number", key: "student_number", width: 20 },
     { header: "Role (current)", key: "role", width: 24 },
+    { header: "Checkpoint", key: "checkpoint", width: 26 },
     { header: "Event ID", key: "event_id", width: 26 },
     { header: "Checked in at (UTC)", key: "checked_in_at", width: 28 },
     { header: "Distance from venue (m)", key: "distance_meters", width: 25 },
@@ -50,6 +51,7 @@ async function buildXlsx(rows) {
     { header: "Student", key: "student_name", width: 28 },
     { header: "Student number", key: "student_number", width: 20 },
     { header: "Role (current)", key: "role", width: 24 },
+    { header: "Checkpoint", key: "checkpoint", width: 26 },
     { header: "Event ID", key: "event_id", width: 26 },
     { header: "Checked in at (UTC)", key: "checked_in_at", width: 28 },
     { header: "Distance from venue (m)", key: "distance_meters", width: 25 },
@@ -64,7 +66,7 @@ async function buildXlsx(rows) {
 async function buildPdf(rows, eventId) {
   const PDFDocument = (await import("pdfkit")).default;
   return new Promise((resolve, reject) => {
-    const document = new PDFDocument({ size: "A4", margin: 42, autoFirstPage: true, bufferPages: true });
+    const document = new PDFDocument({ size: "A4", layout:"landscape", margin: 42, autoFirstPage: true, bufferPages: true });
     const chunks = [];
     document.on("data", (chunk) => chunks.push(chunk));
     document.on("error", reject);
@@ -76,11 +78,12 @@ async function buildPdf(rows, eventId) {
     document.moveDown(1);
 
     const columns = [
-      { label: "Student", key: "student_name", width: 105 },
-      { label: "Number", key: "student_number", width: 80 },
-      { label: "Role (current)", key: "role", width: 100 },
-      { label: "Checked in (UTC)", key: "checked_in_at", width: 125 },
-      { label: "Distance m", key: "distance_meters", width: 100 },
+      { label: "Student", key: "student_name", width: 125 },
+      { label: "Number", key: "student_number", width: 90 },
+      { label: "Role (current)", key: "role", width: 105 },
+      {label:"Checkpoint",key:"checkpoint",width:130},
+      { label: "Checked in (UTC)", key: "checked_in_at", width: 175 },
+      { label: "Distance m", key: "distance_meters", width: 110 },
     ];
     const tableWidth = columns.reduce((sum, column) => sum + column.width, 0);
     const drawHeader = () => {
@@ -127,7 +130,7 @@ async function buildPdf(rows, eventId) {
 
 async function buildDocx(rows, eventId) {
   const { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, WidthType, HeadingLevel } = await import("docx");
-  const headers = ["Student", "Student number", "Role (current)", "Event ID", "Checked in at (UTC)", "Distance from venue (m)"];
+  const headers = ["Student", "Student number", "Role (current)", "Checkpoint", "Event ID", "Checked in at (UTC)", "Distance from venue (m)"];
   const tableRows = [
     new TableRow({
       tableHeader: true,
@@ -137,7 +140,7 @@ async function buildDocx(rows, eventId) {
       })),
     }),
     ...rows.map((row) => new TableRow({
-      children: ["student_name", "student_number", "role", "event_id", "checked_in_at", "distance_meters"].map((key) =>
+      children: ["student_name", "student_number", "role", "checkpoint", "event_id", "checked_in_at", "distance_meters"].map((key) =>
         new TableCell({ children: [new Paragraph(safeText(row[key]))] })),
     })),
   ];
@@ -162,7 +165,7 @@ async function fetchReportRows() {
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await client
       .from("attendance_logs")
-      .select("id, student_id, user_id, event_id, distance_from_venue_meters, checked_in_at, entry_method")
+      .select("id, student_id, user_id, event_id, distance_from_venue_meters, checked_in_at, entry_method, checkpoint_label")
       .eq("event_id", workerData.eventId)
       .eq('status','approved')
       .order("checked_in_at", { ascending: true })
@@ -200,6 +203,7 @@ async function fetchReportRows() {
       student_name: student?.name || "Student unavailable",
       student_number: student?.student_number || "",
       role:reportRole(row,profilesByUser,profilesByStudent),
+      checkpoint:row.checkpoint_label||"Attendance",
       event_id: String(row.event_id),
       checked_in_at: row.checked_in_at || "",
       distance_meters: row.distance_from_venue_meters!==null && Number.isFinite(Number(row.distance_from_venue_meters))

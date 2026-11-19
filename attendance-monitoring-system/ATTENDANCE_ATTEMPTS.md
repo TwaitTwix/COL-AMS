@@ -1,6 +1,6 @@
 # Attendance attempts and administration UX
 
-Each event has `max_check_in_attempts` (default 3, configurable 1–20 on creation or editing). It limits **server-rejected scan verification submissions**, per student record and event. Invalid, expired, wrong-event or replaced QR codes, outside-geofence coordinates, insufficient GPS accuracy, and failed device verification consume one attempt. Scanning pauses after one detection, so repeated camera frames do not consume extra tries.
+Each event has `max_check_in_attempts` (default 3, configurable 1–20 on creation or editing). It limits **server-rejected scan verification submissions**, per participant record, event, and checkpoint. Invalid, expired, wrong-event or replaced QR codes, outside-geofence coordinates, insufficient GPS accuracy, and failed device verification consume one attempt. Scanning pauses after one detection, so repeated camera frames do not consume extra tries. See [Attendance checkpoints](ATTENDANCE_CHECKPOINTS.md) for multi-check-in events.
 
 Camera/location permission failures, GPS timeouts before submission, transport/server failures, duplicate submissions, and closed or ineligible events do not consume attempts. A successful submission or one pending administrator review is final; administrative review is a separate decision, not another scan attempt. Existing attendance is preserved.
 

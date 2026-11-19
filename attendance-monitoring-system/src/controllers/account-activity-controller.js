@@ -12,7 +12,7 @@ export async function accountActivity(req,res,next){
     const [devices,logins,attendance]=await Promise.all([
       supabase.from('user_devices').select('device_hash,user_agent,first_seen_at,last_seen_at').eq('user_id',id).order('last_seen_at',{ascending:false}).limit(100),
       supabase.from('login_logs').select('id,device_hash,user_agent,ip_address,changed_device,shared_device,created_at').eq('user_id',id).order('created_at',{ascending:false}).limit(100),
-      profile.student_id?supabase.from('attendance_logs').select('id,event_id,checked_in_at,status,device_hash,latitude,longitude,accuracy_meters,distance_from_venue_meters,entry_method,recorded_by,manual_reason,events(name,radius_meters,latitude,longitude)').eq('student_id',profile.student_id).order('checked_in_at',{ascending:false}).limit(100):Promise.resolve({data:[]}),
+      profile.student_id?supabase.from('attendance_logs').select('id,event_id,checked_in_at,status,device_hash,latitude,longitude,accuracy_meters,distance_from_venue_meters,entry_method,recorded_by,manual_reason,checkpoint_label,events(name,radius_meters,latitude,longitude)').eq('student_id',profile.student_id).order('checked_in_at',{ascending:false}).limit(100):Promise.resolve({data:[]}),
     ]);[devices,logins,attendance].forEach(r=>check(r.error));
     await writeAuditLog(req.authUser.id,'account.activity_viewed','user_profile',id);
     res.set('Cache-Control','no-store').json({profile,devices:devices.data,logins:logins.data,attendance:attendance.data});
@@ -20,8 +20,8 @@ export async function accountActivity(req,res,next){
 }
 export async function manualAttendance(req,res,next){
   try{
-    const input=validate(z.object({student_id:z.string().uuid(),event_id:z.string().uuid(),reason:z.string().trim().min(3).max(1000),verified:z.literal(true)}),req.body);
-    const {data,error}=await supabase.rpc('record_manual_attendance',{p_actor:req.authUser.id,p_student:input.student_id,p_event:input.event_id,p_reason:input.reason});
+    const input=validate(z.object({student_id:z.string().uuid(),event_id:z.string().uuid(),reason:z.string().trim().min(3).max(1000),verified:z.literal(true),checkpoint_key:z.string().max(50).optional()}),req.body);
+    const {data,error}=await supabase.rpc('record_checkpoint_manual',{p_actor:req.authUser.id,p_student:input.student_id,p_event:input.event_id,p_reason:input.reason,p_key:input.checkpoint_key||null});
     if(error?.code==='23505')throw fail(409,'Already checked in');
     if(error?.code==='P0002')throw fail(404,'Student or event is unavailable');
     if(error?.code==='P0001')throw fail(400,error.message);check(error);

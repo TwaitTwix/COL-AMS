@@ -53,7 +53,7 @@ export async function updateManagedUser(req, res, next) {
       throw httpError(400, "You cannot remove your own COL officer access");
     }
 
-    const studentId = ["student", "student_officer"].includes(input.role) ? input.student_id : null;
+    let studentId=input.student_id;
     const { data: previous, error: previousError } = await supabase
       .from("user_profiles")
       .select("user_id, role, student_id")
@@ -61,6 +61,7 @@ export async function updateManagedUser(req, res, next) {
       .maybeSingle();
     if (previousError) throw previousError;
     if (!previous) throw httpError(404, "Account not found");
+    studentId=studentId===undefined?(previous.student_id||null):studentId;
     if(previous.role==='main_admin')throw httpError(403,'The main administrator role cannot be changed here');
     const {data:target,error:targetError}=await supabase.from('user_profiles').select('approval_status').eq('user_id',userId).single();
     if(targetError)throw targetError;
@@ -158,7 +159,7 @@ export async function listEvents(_req, res, next) {
   try {
     const { data, error } = await supabase
       .from("events")
-      .select("id, name, latitude, longitude, radius_meters, starts_at, ends_at, archived_at,institution,college,max_check_in_attempts")
+      .select("id, name, latitude, longitude, radius_meters, starts_at, ends_at, archived_at,institution,college,max_check_in_attempts,checkpoints")
       .order("starts_at", { ascending: false })
       .limit(100);
     if (error) throw error;
@@ -177,6 +178,7 @@ export async function updateEvent(req, res, next) {
       .eq("id", req.params.eventId)
       .select("id, name, latitude, longitude, radius_meters, starts_at, ends_at, archived_at")
       .maybeSingle();
+    if(error?.code==='P0001')throw httpError(400,error.message);
     if (error) throw error;
     if (!data) throw httpError(404, "Event not found");
     await writeAuditLog(req.authUser.id, "event.updated", "event", data.id, { name: data.name });
@@ -194,6 +196,7 @@ export async function archiveEvent(req, res, next) {
       .eq("id", req.params.eventId)
       .select("id, name, archived_at")
       .maybeSingle();
+    if(error?.code==='P0001')throw httpError(400,error.message);
     if (error) throw error;
     if (!data) throw httpError(404, "Event not found");
     await writeAuditLog(req.authUser.id, archived ? "event.archived" : "event.restored", "event", data.id, { name: data.name });

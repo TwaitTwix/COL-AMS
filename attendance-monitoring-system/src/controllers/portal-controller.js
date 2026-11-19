@@ -5,6 +5,7 @@ import { validate } from '../utils/validate.js';
 import { recordSession, createEventQr, verifyEventQr } from '../services/security-service.js';
 import { writeAuditLog } from '../services/audit-service.js';
 import { validateAcademicSelection } from '../services/academic-service.js';
+import { eventCheckpoints } from '../../public/js/checkpoints.js';
 import { PRIVACY_VERSION } from '../config/privacy.js';
 
 export const uuid = z.string().uuid();
@@ -38,24 +39,25 @@ export async function createCourse(req,res,next){
 }
 export async function dashboard(req,res,next) {
   try {
-    const {data:events,error}=await supabase.from('events').select('id,name,starts_at,ends_at,radius_meters,institution,college').is('archived_at',null).gte('ends_at',new Date().toISOString()).order('starts_at').limit(100);check(error);
+    const {data:events,error}=await supabase.from('events').select('id,name,starts_at,ends_at,radius_meters,institution,college,checkpoints').is('archived_at',null).gte('ends_at',new Date().toISOString()).order('starts_at').limit(100);check(error);
     const {data:student,error:studentError}=req.userProfile.student_id ? await supabase.from('students').select('institution,college,course,archived_at').eq('id',req.userProfile.student_id).maybeSingle() : {data:null};check(studentError);
-    const {data:attendance,error:attendanceError}=req.userProfile.student_id ? await supabase.from('attendance_logs').select('id,event_id,status,checked_in_at,review_note,distance_from_venue_meters,entry_method,events(name)').eq('student_id',req.userProfile.student_id).order('checked_in_at',{ascending:false}).limit(100) : {data:[]};check(attendanceError);
+    const {data:attendance,error:attendanceError}=req.userProfile.student_id ? await supabase.from('attendance_logs').select('id,event_id,status,checked_in_at,review_note,distance_from_venue_meters,entry_method,checkpoint_key,checkpoint_label,events(name)').eq('student_id',req.userProfile.student_id).order('checked_in_at',{ascending:false}).limit(100) : {data:[]};check(attendanceError);
     const now=Date.now();
     res.json({profile:req.userProfile,student,server_time:new Date(now).toISOString(),events:events.map(e=>({...e,opens_at:new Date(Date.parse(e.starts_at)-3600000).toISOString(),is_open:now>=Date.parse(e.starts_at)-3600000,eligible:!student?.archived_at&&(!e.institution||e.institution===student?.institution)&&(!e.college||e.college===student?.college)})),attendance});
   } catch(e){next(e);}
 }
-export async function eventDetail(req,res,next) {
-  try {
+export async function prepareAttendanceProfile(req,res,next){
+  try{const {data,error}=await supabase.rpc('ensure_staff_attendance_profile',{p_user:req.authUser.id});if(error?.code==='P0001')throw fail(400,error.message);check(error);res.json({student_id:data});}catch(e){next(e);}
+}
+export async function eventDetail(req,res,next){
+  try{
     const id=validate(uuid,req.params.eventId);
-    const {data:event,error}=await supabase.from('events').select('id,name,starts_at,ends_at,radius_meters,institution,college,max_check_in_attempts').eq('id',id).is('archived_at',null).maybeSingle();check(error);
-    if(!event)throw fail(404,'Event not found');
+    const {data:event,error}=await supabase.from('events').select('id,name,starts_at,ends_at,radius_meters,institution,college,max_check_in_attempts,checkpoints').eq('id',id).is('archived_at',null).maybeSingle();check(error);if(!event)throw fail(404,'Event not found');
     if(Date.now()<Date.parse(event.starts_at)-3600000)throw fail(403,'This event opens one hour before its scheduled start');
-    const {data:statistics,error:statsError}=await supabase.rpc('event_attendance_statistics',{p_event:id});check(statsError);
-    const {data:attempt,error:attemptError}=await supabase.from('attendance_attempts').select('rejected_count').eq('student_id',req.userProfile.student_id).eq('event_id',id).maybeSingle();check(attemptError);
-    const {data:attendance,error:attendanceError}=await supabase.from('attendance_logs').select('status').eq('student_id',req.userProfile.student_id).eq('event_id',id).maybeSingle();check(attendanceError);
-    const rejected=attempt?.rejected_count||0;
-    res.json({event,statistics,attendance,attempts:{rejected,limit:event.max_check_in_attempts,remaining:Math.max(0,event.max_check_in_attempts-rejected),locked:rejected>=event.max_check_in_attempts}});
+    if(!req.userProfile.student_id)throw fail(400,'Open Campus events and set up your attendance profile first');
+    const [stats,tries,logs]=await Promise.all([supabase.rpc('event_attendance_statistics',{p_event:id}),supabase.from('attendance_attempts').select('checkpoint_key,rejected_count').eq('student_id',req.userProfile.student_id).eq('event_id',id),supabase.from('attendance_logs').select('status,checkpoint_key').eq('student_id',req.userProfile.student_id).eq('event_id',id)]);[stats,tries,logs].forEach(r=>check(r.error));
+    const checkpoints=eventCheckpoints(event).map(c=>{const rejected=tries.data.find(t=>t.checkpoint_key===c.key)?.rejected_count||0;return {...c,attendance:logs.data.find(l=>l.checkpoint_key===c.key)||null,attempts:{rejected,limit:event.max_check_in_attempts,remaining:Math.max(0,event.max_check_in_attempts-rejected),locked:rejected>=event.max_check_in_attempts}};});
+    res.json({event,checkpoints,statistics:stats.data});
   }catch(e){next(e);}
 }
 export async function eventStatistics(req,res,next){
@@ -74,11 +76,11 @@ export async function rotateQr(req,res,next){
 }
 export async function selfCheckIn(req,res,next) {
   try {
-    const input=validate(z.object({event_id:uuid,event_token:z.string().min(1).max(2048),latitude:z.number().finite().min(-90).max(90),longitude:z.number().finite().min(-180).max(180),accuracy_meters:z.number().finite().nonnegative()}),req.body);
+    const input=validate(z.object({event_id:uuid,checkpoint_key:z.string().max(50).optional(),event_token:z.string().min(1).max(2048),latitude:z.number().finite().min(-90).max(90),longitude:z.number().finite().min(-180).max(180),accuracy_meters:z.number().finite().nonnegative()}),req.body);
     let qr=null,qrError=null;
     try{qr=verifyEventQr(input.event_token,input.event_id);}catch(e){if(e.status!==400)throw e;qrError=e.message;}
     await recordSession(req,res,req.get('authorization').replace(/^Bearer\s+/i,''));
-    const {data,error}=await supabase.rpc('attempt_event_attendance',{p_user:req.authUser.id,p_event:input.event_id,p_qr_version:qr?.version||null,p_qr_error:qrError,p_device_hash:req.deviceHash,p_latitude:input.latitude,p_longitude:input.longitude,p_accuracy:input.accuracy_meters});
+    const {data,error}=await supabase.rpc('submit_checkpoint_attendance',{p_user:req.authUser.id,p_event:input.event_id,p_key:input.checkpoint_key||null,p_qr_version:qr?.version||null,p_qr_error:qrError,p_device_hash:req.deviceHash,p_latitude:input.latitude,p_longitude:input.longitude,p_accuracy:input.accuracy_meters});
     if(error){
       if(error.code==='23505')throw fail(409,'Already checked in');
       if(['P0001','P0002'].includes(error.code))throw fail(400,error.code==='P0002'?'Student or event is unavailable':error.message);
@@ -145,7 +147,7 @@ export async function listNotifications(_req,res,next){
 export async function studentNotifications(req,res,next){
   try{
     if(!req.userProfile.student_id){res.json({notifications:[]});return;}
-    const {data,error}=await supabase.from('attendance_logs').select('id,status,review_note,checked_in_at,reviewed_at,events(name)').eq('student_id',req.userProfile.student_id).order('checked_in_at',{ascending:false}).limit(10);check(error);
-    res.set('Cache-Control','no-store').json({notifications:data.map(a=>({id:a.id,message:(a.events?.name||'Event')+': '+a.status.replaceAll('_',' ')+(a.review_note?' — '+a.review_note:''),created_at:a.reviewed_at||a.checked_in_at}))});
+    const {data,error}=await supabase.from('attendance_logs').select('id,status,review_note,checked_in_at,reviewed_at,checkpoint_label,events(name)').eq('student_id',req.userProfile.student_id).order('checked_in_at',{ascending:false}).limit(10);check(error);
+    res.set('Cache-Control','no-store').json({notifications:data.map(a=>({id:a.id,message:(a.events?.name||'Event')+' · '+(a.checkpoint_label||'Attendance')+': '+a.status.replaceAll('_',' ')+(a.review_note?' — '+a.review_note:''),created_at:a.reviewed_at||a.checked_in_at}))});
   }catch(e){next(e);}
 }

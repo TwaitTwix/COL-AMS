@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validCheckpointSchedule } from '../../public/js/checkpoints.js';
 
 export const managedRoleSchema = z.object({
   role: z.enum(["pending", "student", "student_officer", "col_officer", "officer", "admin"]),
@@ -21,11 +22,12 @@ export const createEventSchema = z.object({
   longitude: z.number().finite().min(-180).max(180),
   radius_meters: z.number().finite().positive().max(100_000),
   max_check_in_attempts: z.number().int().min(1).max(20).default(3),
+  checkpoints:z.array(z.object({key:z.string().regex(/^[a-zA-Z0-9_-]{1,50}$/),label:z.string().trim().min(1).max(80),opens_at:z.string().datetime({offset:true}).optional(),closes_at:z.string().datetime({offset:true}).optional()})).min(1).max(8).default([{key:'default',label:'Attendance'}]),
   starts_at: z.string().datetime({ offset: true }),
   ends_at: z.string().datetime({ offset: true }),
   institution: z.enum(['MCNP','ISAP']).nullable().default(null),
   college: z.string().trim().min(1).max(100).nullable().default(null),
-}).refine((event) => Date.parse(event.starts_at) <= Date.parse(event.ends_at), {
+}).refine(validCheckpointSchedule,{path:['checkpoints'],message:'Checkpoint windows must be ordered, non-overlapping and inside the event attendance window'}).refine((event) => Date.parse(event.starts_at) <= Date.parse(event.ends_at), {
   path: ["ends_at"],
   message: "Event end must be after its start",
 }).refine(event=>!event.college||!!event.institution,{path:['college'],message:'Choose an institution for this college'});
