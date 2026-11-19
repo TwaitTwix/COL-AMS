@@ -1,5 +1,7 @@
 # Review center
 
+Numbered controls and a Go to page field are now shared with Activity logs; see [ACTIVITY_LOGS.md](ACTIVITY_LOGS.md).
+
 The administrator dashboard now fetches four exact counts instead of fetching user lists and the latest 100 security records. Three compact cards link to unread notifications, attendance pending review, and open device incidents. A short registration summary links to the existing verification page.
 
 Review center is a separate administration page available to approved main administrators, administrators and COL officers who accepted the current privacy notice. Each category supports server-side name/email/ID/event/message search, Needs attention / Resolved history / All filters, and stable pagination (10 items per page, newest first with ID tie-breaking). Exact totals include records beyond the old 100-row dashboard cap. Attendance history includes administrator-reviewed submissions and excludes unrelated successful scans/manual entries.

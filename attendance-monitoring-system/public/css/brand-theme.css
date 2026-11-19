@@ -106,3 +106,11 @@ button:focus-visible, a:focus-visible { outline: 2px solid #f5f5ee; outline-offs
 .review-details textarea { font: inherit; width: 100%; min-height: 6rem; padding: .875rem; background: #121212; color: var(--ink); border: 1px solid #656565; border-radius: .5rem; resize: vertical; }
 .review-details .row-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
 @media(max-width:760px) { .review-filters { grid-template-columns: minmax(0,1fr); } .review-tabs { display: grid; grid-template-columns: minmax(0,1fr); } .review-details .row-actions { flex-direction: column; } }
+.page-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.page-buttons button, .page-jump button { width: auto; min-width: 3rem; flex: 0 0 auto; }
+.page-buttons [aria-current="page"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); opacity: 1; cursor: default; }
+.page-ellipsis { padding: .25rem; color: var(--muted); }
+.page-jump, .page-jump label { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.page-jump input { width: 5.5rem; min-height: 3rem; padding: .5rem; background: #121212; color: var(--ink); border: 1px solid #656565; border-radius: .5rem; }
+.log-facts dt { margin-top: 1rem; font-weight: 600; text-transform: capitalize; }
+.log-facts dd { margin: .35rem 0 0; color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }

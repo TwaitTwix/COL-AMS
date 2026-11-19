@@ -1,13 +1,9 @@
+import { renderActivityLogs } from './activity-logs.js';
 import { bindRoleSearch } from './role-search.js';
 const searchMarkup=()=>`<div class="role-search"><label class="admin-field" for="role-search">FIND A STUDENT OR ACCOUNT<input id="role-search" type="search" placeholder="Type a name, email, or personal ID" role="combobox" aria-autocomplete="list" aria-controls="role-suggestions" aria-expanded="false" autocomplete="off"></label><div id="role-suggestions" role="listbox" aria-label="Suggested accounts" hidden></div></div><p id="role-search-status" class="muted" role="status"></p>`;
 const distance=a=>a.distance_from_venue_meters==null?'Not measured':`${Number(a.distance_from_venue_meters).toFixed(2)} m`;
 
-export async function renderLogs(ctx){
-  const {page,api,esc,date,current,heading}=ctx;
-  const [security,audit,accounts]=await Promise.all([api('/api/admin/security'),api('/api/admin/audit-logs?limit=100'),api('/api/admin/users')]);if(!current())return;
-  const identity=id=>esc(accounts.users.find(u=>u.user_id===id)?.full_name||accounts.users.find(u=>u.user_id===id)?.email||id||'System');
-  page.innerHTML=heading('Activity logs','Recent login and administrator actions. Use Account tracker for one person’s device and attendance evidence.')+`<section class="workspace-card"><h2>Login history · latest 100</h2><p class="muted">Login records contain browser identifiers and IP addresses, not GPS. Location is captured only during attendance submissions.</p><div class="table-scroll"><table><thead><tr><th>Account / time</th><th>Browser device</th><th>Network address</th><th>Browser</th><th>Device flags</th></tr></thead><tbody>${security.logins.map(l=>`<tr><td>${identity(l.user_id)}<small>${esc(date(l.created_at))}</small><button class="small-action" data-track-user="${l.user_id}">View account</button></td><td>${esc(l.device_hash.slice(0,16))}</td><td>${esc(l.ip_address||'Not available')}</td><td class="browser-detail">${esc(l.user_agent)}</td><td>${l.shared_device?'Shared ':''}${l.changed_device?'Changed':''}${!l.shared_device&&!l.changed_device?'Registered browser':''}</td></tr>`).join('')}</tbody></table></div>${security.logins.length?'':'<p class="muted">No login records.</p>'}</section><section class="workspace-card"><h2>Administrator audit · latest 100</h2>${audit.logs.map(l=>`<article class="review-row"><div><strong>${esc(l.action)}</strong><p>${identity(l.actor_user_id)} · ${esc(date(l.created_at))}</p><small>${esc(l.entity_type)} · ${esc(l.entity_id)}</small><p class="account-details">${esc(JSON.stringify(l.details))}</p></div></article>`).join('')||'<p class="muted">No administrator actions.</p>'}</section>`;
-}
+export async function renderLogs(ctx){return renderActivityLogs(ctx);}
 
 export async function renderTracker(ctx,initialUser=null){
   const {page,api,esc,date,current,heading}=ctx;

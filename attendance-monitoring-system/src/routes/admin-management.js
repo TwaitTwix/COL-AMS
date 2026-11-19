@@ -21,6 +21,7 @@ import { createCollege,createCourse,eventQr,rotateQr,eventStatistics,reviewRegis
 const router = Router();
 import { accountActivity,manualAttendance } from '../controllers/account-activity-controller.js';
 import { reviewSummary,listReviews } from '../controllers/review-center-controller.js';
+import { listActivityLogs } from '../controllers/activity-logs-controller.js';
 for(const name of ['userId','studentId','eventId','attendanceId','incidentId','notificationId'])router.param(name,(_req,_res,next,value)=>{
   try{validate(z.string().uuid(),value);next();}catch(error){next(error);}
 });
@@ -36,6 +37,7 @@ router.get("/audit-logs", ...officerAccess, listAuditLogs);
 router.get('/security',...officerAccess,securityDashboard);
 router.get('/review-summary',...officerAccess,reviewSummary);
 router.get('/reviews',...officerAccess,listReviews);
+router.get('/activity-logs',...officerAccess,listActivityLogs);
 router.get('/notifications',...officerAccess,listNotifications);
 router.post('/colleges',...officerAccess,createCollege);
 router.post('/courses',...officerAccess,createCourse);
