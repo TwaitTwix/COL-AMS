@@ -20,7 +20,7 @@ import { createCollege,createCourse,eventQr,rotateQr,eventStatistics,reviewRegis
 
 const router = Router();
 import { accountActivity,manualAttendance } from '../controllers/account-activity-controller.js';
-import { reviewSummary,listReviews } from '../controllers/review-center-controller.js';
+import { reviewSummary,listReviews,previewBulkAttendance,approveBulkAttendance } from '../controllers/review-center-controller.js';
 import { listActivityLogs } from '../controllers/activity-logs-controller.js';
 import { studentDirectory } from '../controllers/student-directory-controller.js';
 for(const name of ['userId','studentId','eventId','attendanceId','incidentId','notificationId'])router.param(name,(_req,_res,next,value)=>{
@@ -38,6 +38,8 @@ router.get("/audit-logs", ...officerAccess, listAuditLogs);
 router.get('/security',...officerAccess,securityDashboard);
 router.get('/review-summary',...officerAccess,reviewSummary);
 router.get('/reviews',...officerAccess,listReviews);
+router.post('/attendance/bulk-preview',...officerAccess,previewBulkAttendance);
+router.post('/attendance/bulk-approve',...officerAccess,approveBulkAttendance);
 router.get('/activity-logs',...officerAccess,listActivityLogs);
 router.get('/notifications',...officerAccess,listNotifications);
 router.post('/colleges',...officerAccess,createCollege);
