@@ -46,6 +46,7 @@ async function verify(session){
     return;
   }
   badge.hidden=false;badge.textContent=(data.profile.full_name||data.user.email)+' · '+data.profile.role.replaceAll('_',' ');
+  badge.disabled=data.privacy_required||data.profile.approval_status!=='approved'||data.profile.role==='pending';badge.title='Account settings — '+(data.profile.full_name||data.user.email);badge.setAttribute('aria-label','Account settings for '+(data.profile.full_name||data.user.email));
   signout.hidden=false;
   if(data.privacy_required){closeWorkspace();refresh.hidden=true;view('privacy');return;}
   if(data.profile.approval_status!=='approved'||data.profile.role==='pending'){
@@ -137,6 +138,11 @@ signout.addEventListener('click',async()=>{
     localStorage.removeItem('col-ams-auth-session-code-verifier');
     location.replace('/');
   }
+});
+window.addEventListener('app:password-changed',async()=>{
+  if(!client)return;manuallySignedOut=true;signedOut('Password updated. Sign in with your new password.');
+  try{await Promise.race([client.auth.signOut({scope:'local'}),new Promise(resolve=>setTimeout(resolve,5000))]);}catch{/* Clear this browser below. */}
+  finally{localStorage.removeItem('col-ams-auth-session');localStorage.removeItem('col-ams-auth-session-code-verifier');history.replaceState({},'','/');}
 });
 async function initialize(){
   try{

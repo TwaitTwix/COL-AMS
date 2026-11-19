@@ -19,6 +19,7 @@ app.get('/vendor/pdfjs/:asset',(req,res,next)=>{
 });
 app.use("/api", apiRouter);
 app.get('/events/:eventId', (_req,res)=>res.sendFile(path.resolve(currentDir,'../public/index.html')));
+app.get('/account',(_req,res)=>res.sendFile(path.resolve(currentDir,'../public/index.html')));
 app.use(notFoundHandler);
 app.use(errorHandler);
 

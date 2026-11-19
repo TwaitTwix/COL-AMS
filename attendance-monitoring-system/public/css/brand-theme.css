@@ -127,7 +127,11 @@ button:focus-visible, a:focus-visible { outline: 2px solid #f5f5ee; outline-offs
 .student-record-card summary { min-height: 2.75rem; padding: .6rem 0; cursor: pointer; color: var(--muted); }
 .student-card-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
 .notification-menu { position: relative; flex-shrink: 0; }
-.topbar-right:has(#account-badge[hidden]):has(#sign-out[hidden]):has(#notification-bell[hidden]) { display: none; }
+.topbar-right:has(#account-badge[hidden]) { width: auto; margin-left: auto; }
+.theme-toggle { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 3rem; height: 3rem; padding: .5rem; border: 1px solid #575757; border-radius: .75rem; background: #272727; color: var(--ink); cursor: pointer; }
+.account-link { cursor: pointer; text-align: left; }
+.account-settings { max-width: 40rem; }
+.account-settings h2,.account-settings p { overflow-wrap: anywhere; }
 .notification-bell { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 3rem; height: 3rem; padding: .5rem; background: #272727; border: 1px solid #575757; border-radius: .75rem; color: var(--ink); cursor: pointer; }
 #notification-count { position: absolute; top: -.35rem; right: -.35rem; min-width: 1.35rem; padding: .05rem .3rem; background: #f0f0e9; color: #171717; border: 2px solid #131313; border-radius: 1rem; font-size: .75rem; font-weight: 700; }
 .notification-popover { position: absolute; top: calc(100% + .75rem); right: 0; z-index: 120; width: min(24rem,calc(100vw - 2rem)); max-height: 70dvh; overflow: auto; padding: 1rem; background: #202020; color: var(--ink); border: 1px solid #606060; border-radius: .875rem; box-shadow: 0 16px 48px #0009; }
@@ -142,3 +146,4 @@ button:focus-visible, a:focus-visible { outline: 2px solid #f5f5ee; outline-offs
 .pdf-page-text { white-space: pre-wrap; line-height: 1.8; overflow-wrap: anywhere; margin: 1rem 0; }
 @media(max-width:1050px) { .roster-layout { grid-template-columns: minmax(0,1fr); } .roster-layout > #student-directory, .roster-forms { grid-column: auto; grid-row: auto; } }
 @media(max-width:760px) { .notification-popover { position: fixed; right: 1rem; top: var(--notification-top,8.5rem); max-height: min(70dvh,calc(100dvh - var(--notification-top,8.5rem) - 1rem)); } .topbar-right { width: 100%; flex-wrap: nowrap; gap: .5rem; } .topbar-right .account-badge { min-width: 0; flex: 1; } .topbar-right .sign-out-button { padding: .75rem; } }
+@media(max-width:760px) { .topbar-right .account-link { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .topbar-right:has(#account-badge[hidden]) { width: auto; } }

@@ -9,6 +9,8 @@ import { validateAcademicSelection } from '../services/academic-service.js';
 import { passwordSchema } from '../validators/password-validator.js';
 import { PRIVACY_VERSION } from '../config/privacy.js';
 import { writeAuditLog } from '../services/audit-service.js';
+import { changePasswordSchema } from '../validators/change-password-validator.js';
+import { changeOwnPassword } from '../services/change-password-service.js';
 
 export function getPublicAuthConfig(_req, res) {
   if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) {
@@ -55,6 +57,18 @@ export async function updatePassword(req,res,next){
     const result=await response.json();
     if(!response.ok)throw Object.assign(new Error(result.msg||result.message||'Unable to update password'),{status:response.status>=500?503:400});
     res.json({message:'Password updated'});
+  }catch(e){next(e);}
+}
+export async function changePassword(req,res,next){
+  try{
+    const input=validate(changePasswordSchema,req.body);
+    const client=createClient(env.SUPABASE_URL,env.SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+    await changeOwnPassword({userId:req.authUser.id,email:req.authUser.email,authorization:req.get('authorization'),currentPassword:input.current_password,password:input.password},{client,update:async(authorization,password)=>{
+      const response=await fetch(`${env.SUPABASE_URL.replace(/\/$/,'')}/auth/v1/user`,{method:'PUT',headers:{apikey:env.SUPABASE_PUBLISHABLE_KEY,Authorization:authorization,'Content-Type':'application/json'},body:JSON.stringify({password})});
+      const result=await response.json();if(!response.ok)throw Object.assign(new Error(result.msg||result.message||'Unable to change password. Sign in again and retry.'),{status:response.status>=500?503:400});
+    }});
+    await writeAuditLog(req.authUser.id,'account.password_changed','user_profile',req.authUser.id,{});
+    res.json({message:'Password updated. Sign in with your new password.'});
   }catch(e){next(e);}
 }
 

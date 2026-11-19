@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#131313"><title>COL AMS · Campus attendance</title>
+  <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/css/accessibility.css">
   <link rel="stylesheet" href="/css/brand-theme.css">
+  <link rel="stylesheet" href="/css/light-theme.css">
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
   <script type="module" src="/js/portal.js"></script>
@@ -15,7 +17,7 @@
 <div class="app-shell">
   <header class="topbar">
     <a class="brand" href="/"><span class="brand-logo"><img src="/assets/col-logo.jpg" alt="College of Leaders seal"></span><span class="brand-name"><strong>COL <i>·</i> AMS</strong><small>CAMPUS ATTENDANCE</small></span></a>
-    <div class="topbar-right"><span id="account-badge" class="account-badge" hidden></span><div class="notification-menu"><button id="notification-bell" class="notification-bell" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="notification-popover" hidden><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span id="notification-count" hidden></span></button><section id="notification-popover" class="notification-popover" aria-label="Notifications" hidden></section></div><button id="sign-out" class="sign-out-button" hidden>Sign out</button></div>
+    <div class="topbar-right"><button id="account-badge" class="account-badge account-link" type="button" title="Account settings" aria-label="Open account settings" hidden></button><button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light mode" aria-pressed="false" title="Switch to light mode">☀</button><div class="notification-menu"><button id="notification-bell" class="notification-bell" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="notification-popover" hidden><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span id="notification-count" hidden></span></button><section id="notification-popover" class="notification-popover" aria-label="Notifications" hidden></section></div><button id="sign-out" class="sign-out-button" hidden>Sign out</button></div>
   </header>
   <main class="auth-shell" id="auth-panel">
     <section class="auth-card" aria-labelledby="auth-title">

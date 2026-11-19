@@ -4,6 +4,7 @@ import { renderLogs,renderTracker,renderManualAttendance } from './admin-tools.j
 import { mountStudentDirectory } from './student-directory.js';
 import { createNotificationBell } from './notification-bell.js';
 import { renderReports } from './report-page.js';
+import { renderAccount } from './account-page.js';
 import { renderReviewCenter } from './review-center.js';
 import { requestDecisionNote } from './decision-dialog.js';
 const page=document.querySelector('#page-content');
@@ -47,11 +48,12 @@ async function navigate(name,push=true){
   const version=++screen;currentPage=name;clearInterval(refreshTimer);refreshTimer=null;notificationBell.close();
   document.querySelectorAll('.review-details').forEach(d=>d.close());
   await stopCamera();if(version!==screen||!session)return;
-  if(push&&location.pathname!=='/')history.pushState({},'','/');
+  const targetPath=name==='account'?'/account':'/';if(push&&location.pathname!==targetPath)history.pushState({},'',targetPath);
   nav.querySelectorAll('button').forEach(b=>{b.classList.toggle('active',b.dataset.page===name);b.setAttribute('aria-current',b.dataset.page===name?'page':'false');});
   page.innerHTML='<p class="muted">Loading workspace…</p>';
   try{
-    if(name==='dashboard')await (isAdmin()?adminDashboard(version):studentDashboard(version));
+    if(name==='account')renderAccount(toolContext(version),session.profile);
+    else if(name==='dashboard')await (isAdmin()?adminDashboard(version):studentDashboard(version));
     else if(name==='reviews'&&isAdmin())await renderReviewCenter(toolContext(version),reviewCategory);
     else if(name==='logs'&&isAdmin())await renderLogs(toolContext(version));
     else if(name==='tracker'&&isAdmin())await renderTracker(toolContext(version));
@@ -78,10 +80,11 @@ window.addEventListener('app:session',event=>{
   clearInterval(notificationTimer);
   notificationBell.reset();void notificationBell.refresh();notificationTimer=setInterval(()=>void notificationBell.refresh(),15000);
   const eventId=/^\/events\/([^/]+)$/.exec(location.pathname)?.[1];
-  if(eventId&&!isAdmin())void openStudentEvent(eventId,false);else void navigate('dashboard',false);
+  if(location.pathname==='/account')void navigate('account',false);else if(eventId&&!isAdmin())void openStudentEvent(eventId,false);else void navigate('dashboard',false);
 });
+document.querySelector('#account-badge').addEventListener('click',()=>{if(session)void navigate('account');});
 nav.addEventListener('click',event=>{const b=event.target.closest('[data-page]');if(b)void navigate(b.dataset.page);});
-window.addEventListener('popstate',()=>{if(!session)return;const id=/^\/events\/([^/]+)$/.exec(location.pathname)?.[1];if(id&&!isAdmin())void openStudentEvent(id,false);else void navigate('dashboard',false);});
+window.addEventListener('popstate',()=>{if(!session)return;const id=/^\/events\/([^/]+)$/.exec(location.pathname)?.[1];if(location.pathname==='/account')void navigate('account',false);else if(id&&!isAdmin())void openStudentEvent(id,false);else void navigate('dashboard',false);});
 
 async function studentDashboard(version){
   const data=await api('/api/student/dashboard');if(version!==screen)return;
