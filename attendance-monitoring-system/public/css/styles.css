@@ -15,7 +15,7 @@
 /* Campus workspace: fixed navigation on desktop, compact navigation on phones. */
 .workspace { display:grid; grid-template-columns:224px minmax(0,1fr); flex:1; }
 .sidebar { border-right:1px solid var(--line); background:#0d151c; padding:34px 20px; }
-.sidebar nav { display:grid; gap:8px; position:sticky; top:24px; }
+.sidebar nav { display:grid; gap:8px; position:static; }
 .sidebar nav button { padding:14px 12px; min-height:46px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--muted); text-align:left; font-size:12px; cursor:pointer; }
 .sidebar nav button.active { border-color:#42613a; background:#1b2c20; color:var(--accent); }
 .sidebar-note { margin-top:50px; font-size:11px; color:#657780; line-height:1.7; }
