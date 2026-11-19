@@ -26,6 +26,8 @@ test('live student/admin endpoints enforce roles and return the new dashboard',{
       assert.equal((await fetch(base+'/api/admin/review-summary',{headers})).status,403);
       assert.equal((await fetch(base+'/api/admin/reviews?category=notifications',{headers})).status,403);
       assert.equal((await fetch(base+'/api/admin/activity-logs?category=logins',{headers})).status,403);
+      assert.equal((await fetch(base+'/api/admin/student-directory',{headers})).status,403);
+      assert.equal((await fetch(base+'/api/student/notifications',{headers})).status,403);
       assert.equal((await fetch(base+'/api/admin/manual-attendance',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:'{}'})).status,403);
       await client.auth.signOut({scope:'local'});continue;
     }

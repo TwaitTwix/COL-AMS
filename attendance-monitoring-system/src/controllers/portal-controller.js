@@ -140,5 +140,12 @@ export async function readNotification(req,res,next){
   try{const id=validate(uuid,req.params.notificationId);const {error}=await supabase.from('admin_notifications').update({read_at:new Date().toISOString()}).eq('id',id);check(error);res.json({message:'Notification marked read'});}catch(e){next(e);}
 }
 export async function listNotifications(_req,res,next){
-  try{const {data,error}=await supabase.from('admin_notifications').select('id,message,created_at,read_at').order('created_at',{ascending:false}).limit(30);check(error);res.json({notifications:data});}catch(e){next(e);}
+  try{const [items,unread]=await Promise.all([supabase.from('admin_notifications').select('id,message,created_at,read_at').order('read_at',{ascending:true,nullsFirst:true}).order('created_at',{ascending:false}).limit(30),supabase.from('admin_notifications').select('id',{count:'exact',head:true}).is('read_at',null)]);check(items.error);check(unread.error);res.set('Cache-Control','no-store').json({notifications:items.data,unread_count:unread.count});}catch(e){next(e);}
+}
+export async function studentNotifications(req,res,next){
+  try{
+    if(!req.userProfile.student_id){res.json({notifications:[]});return;}
+    const {data,error}=await supabase.from('attendance_logs').select('id,status,review_note,checked_in_at,reviewed_at,events(name)').eq('student_id',req.userProfile.student_id).order('checked_in_at',{ascending:false}).limit(10);check(error);
+    res.set('Cache-Control','no-store').json({notifications:data.map(a=>({id:a.id,message:(a.events?.name||'Event')+': '+a.status.replaceAll('_',' ')+(a.review_note?' — '+a.review_note:''),created_at:a.reviewed_at||a.checked_in_at}))});
+  }catch(e){next(e);}
 }

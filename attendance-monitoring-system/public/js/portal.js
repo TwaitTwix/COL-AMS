@@ -1,6 +1,9 @@
 import { bindAcademicSelects } from './academic-selects.js';
 import { bindRoleSearch } from './role-search.js';
 import { renderLogs,renderTracker,renderManualAttendance } from './admin-tools.js';
+import { mountStudentDirectory } from './student-directory.js';
+import { createNotificationBell } from './notification-bell.js';
+import { renderReports } from './report-page.js';
 import { renderReviewCenter } from './review-center.js';
 import { requestDecisionNote } from './decision-dialog.js';
 const page=document.querySelector('#page-content');
@@ -9,10 +12,12 @@ const dialog=document.querySelector('#qr-dialog');
 const toast=document.querySelector('#toast');
 let session=null, currentPage='dashboard', screen=0, scanner=null, cameraStarting=null, scanning=false;
 let refreshTimer=null, qrTimer=null, qrEvent=null, aborter=new AbortController();
-let notificationTimer=null, knownNotifications=null;
+let notificationTimer=null;
 let users=[],students=[],events=[],colleges=[];
 let rosterSelection=null;
 let cameraResize=null;
+let viewCleanup=null;
+function disposeView(){viewCleanup?.();viewCleanup=null;}
 let reviewCategory='notifications';
 const adminRoles=['main_admin','admin','col_officer'];
 const isAdmin=()=>adminRoles.includes(session?.role);
@@ -27,6 +32,7 @@ async function api(path,options={}){
   return data;
 }
 const send=(path,body,method='POST')=>api(path,{method,body:JSON.stringify(body)});
+const notificationBell=createNotificationBell({button:document.querySelector('#notification-bell'),popup:document.querySelector('#notification-popover'),badge:document.querySelector('#notification-count'),api,getSession:()=>session,isAdmin,esc,date,onOpen:()=>{if(isAdmin()){reviewCategory='notifications';void navigate('reviews');}else void navigate('history');}});
 function institutionOptions(value='',all=true){return `${all?'<option value="">All institutions</option>':''}${['MCNP','ISAP'].map(i=>`<option ${i===value?'selected':''}>${i}</option>`).join('')}`;}
 function collegeOptions(institution='',value='',all=true){return `${all?'<option value="">All colleges</option>':''}${colleges.filter(c=>c.institution===institution).map(c=>`<option value="${esc(c.name)}" ${c.name===value?'selected':''}>${esc(c.abbreviation?c.abbreviation+' — '+c.name:c.name)}</option>`).join('')}`;}
 function statsMarkup(stats){return stats.length?stats.map(s=>`<div class="stat-row"><div><strong>${esc(s.institution)}${s.college?' / '+esc(s.college):' · overall'}${s.level==='course'?' / '+esc(s.course||'Course not assigned'):''}</strong><small>${s.attended} / ${s.eligible} active student records</small></div><strong>${s.percentage}%</strong><progress max="100" value="${s.percentage}" aria-label="${esc(s.institution+' '+(s.college||'overall')+(s.level==='course'?' '+(s.course||'unassigned course'):''))} attendance"></progress></div>`).join(''):'<p class="muted">No eligible students have an institution and college assigned yet.</p>';}
@@ -37,7 +43,8 @@ async function stopCamera(){
   if(active){try{if(active.isScanning)await active.stop();active.clear();}catch{/* View is already closed. */}}
 }
 async function navigate(name,push=true){
-  const version=++screen;currentPage=name;clearInterval(refreshTimer);refreshTimer=null;
+  disposeView();
+  const version=++screen;currentPage=name;clearInterval(refreshTimer);refreshTimer=null;notificationBell.close();
   document.querySelectorAll('.review-details').forEach(d=>d.close());
   await stopCamera();if(version!==screen||!session)return;
   if(push&&location.pathname!=='/')history.pushState({},'','/');
@@ -58,21 +65,18 @@ async function navigate(name,push=true){
     else throw new Error('This page is not available to your account');
   }catch(e){if(version===screen&&e.name!=='AbortError')page.innerHTML=heading('Unable to load this page',e.message)+'<button class="secondary-button" data-retry>Retry</button>';}
 }
-function toolContext(version){return {page,api,send,esc,date,heading,announce,current:()=>version===screen};}
+function toolContext(version){return {page,api,send,esc,date,heading,announce,current:()=>version===screen,onCleanup:cleanup=>{if(version===screen)viewCleanup=cleanup;else cleanup();}};}
 function setNav(){
   const entries=isAdmin()?[['dashboard','Overview'],['reviews','Review center'],['logs','Activity logs'],['tracker','Account tracker'],['manual','Manual attendance'],['verifications','User verifications'],['events','Events & geofencing'],['roster','Students & colleges'],['reports','Attendance reports'],...(session.role==='main_admin'?[['roles','Manage role access']]:[])]:[['dashboard','Campus events'],['history','My attendance']];
   nav.innerHTML=entries.map(([key,label])=>`<button type="button" data-page="${key}">${label}</button>`).join('');
 }
 window.addEventListener('app:session',event=>{
   const previous=session;session=event.detail;
-  if(!session){screen++;aborter.abort();aborter=new AbortController();clearInterval(refreshTimer);clearInterval(qrTimer);clearInterval(notificationTimer);knownNotifications=null;void stopCamera();dialog.close();document.querySelectorAll('.decision-dialog,.review-details').forEach(d=>d.close());page.replaceChildren();return;}
+  if(!session){disposeView();screen++;aborter.abort();aborter=new AbortController();clearInterval(refreshTimer);clearInterval(qrTimer);clearInterval(notificationTimer);notificationBell.reset();void stopCamera();dialog.close();document.querySelectorAll('.decision-dialog,.review-details').forEach(d=>d.close());page.replaceChildren();return;}
   if(previous?.user.id===session.user.id&&previous.role===session.role)return;
   setNav();
   clearInterval(notificationTimer);
-  if(isAdmin()){
-    const poll=async()=>{try{const {notifications}=await api('/api/admin/notifications');if(knownNotifications){const fresh=notifications.filter(n=>!knownNotifications.has(n.id)&&!n.read_at);if(fresh.length)announce(fresh[0].message);}knownNotifications=new Set(notifications.map(n=>n.id));}catch{/* A failed poll will retry; page actions show their own errors. */}};
-    void poll();notificationTimer=setInterval(poll,15000);
-  }
+  notificationBell.reset();void notificationBell.refresh();notificationTimer=setInterval(()=>void notificationBell.refresh(),15000);
   const eventId=/^\/events\/([^/]+)$/.exec(location.pathname)?.[1];
   if(eventId&&!isAdmin())void openStudentEvent(eventId,false);else void navigate('dashboard',false);
 });
@@ -197,23 +201,16 @@ async function roleManagement(version){
   page.querySelectorAll('[data-role-user]').forEach(form=>form.addEventListener('submit',async event=>{event.preventDefault();const b=form.querySelector('button');b.disabled=true;try{const input=Object.fromEntries(new FormData(form));input.student_id=input.student_id||null;await send(`/api/admin/users/${form.dataset.roleUser}`,input,'PATCH');announce('Role updated.');void navigate('roles',false);}catch(e){announce(e.message,true);b.disabled=false;}}));
 }
 async function roster(version){
-  const [data,catalog]=await Promise.all([api('/api/admin/students'),api('/api/auth/colleges')]);students=data.students;colleges=catalog.colleges;if(version!==screen)return;
-  page.innerHTML=heading('Students & colleges','Manage the institution → college → course hierarchy and confirm any unassigned courses.')+`<div class="admin-columns"><section class="workspace-card"><h2>Student record</h2><form id="student-form" class="management-form"><input name="id" type="hidden"><label class="admin-field">FULL NAME<input name="name" required maxlength="120"></label><label class="admin-field">PERSONAL ID<input name="student_number" required maxlength="40"></label><label class="admin-field">INSTITUTION<select name="institution" required><option value="">Choose an institution</option>${institutionOptions('',false)}</select></label><label class="admin-field">COLLEGE<select name="college" required></select></label><label class="admin-field">COURSE<select name="course" required></select></label><button class="report-button" type="submit">Save student record →</button></form><h2 class="section-title">Add a college</h2><form id="college-form" class="management-form"><label class="admin-field">INSTITUTION<select name="institution">${institutionOptions('',false)}</select></label><label class="admin-field">COLLEGE NAME<input name="name" required maxlength="100"></label><button class="report-button" type="submit">Add college →</button></form><h2 class="section-title">Add a course</h2><form id="course-form" class="management-form"><label class="admin-field">INSTITUTION<select name="institution">${institutionOptions('',false)}</select></label><label class="admin-field">COLLEGE<select name="college" required>${collegeOptions('MCNP','',false)}</select></label><label class="admin-field">COURSE NAME<input name="name" required maxlength="160"></label><button class="report-button" type="submit">Add course →</button></form></section><section class="workspace-card"><h2>Student records</h2>${students.map(s=>`<article class="review-row"><div><strong>${esc(s.name)}${s.archived_at?' · Archived':''}</strong><p>${esc(s.student_number)} · ${esc(s.institution||'Unassigned')} / ${esc(s.college||'Unassigned')}</p><p>Course: ${esc(s.course||'Not assigned — confirmation needed')}</p></div><div class="row-actions"><button class="small-action" data-edit-student="${s.id}">Edit</button><button class="small-action" data-archive-student="${s.id}" data-archived="${!!s.archived_at}">${s.archived_at?'Restore':'Archive'}</button></div></article>`).join('')||'<p class="muted">No students.</p>'}</section></div>`;
+  const catalog=await api('/api/auth/colleges');colleges=catalog.colleges;students=[];if(version!==screen)return;
+  page.innerHTML=heading('Students & colleges','Find student records and manage your institution, college, and course catalog.')+`<div class="roster-layout"><section id="student-directory" class="workspace-card"></section><div class="roster-forms"><section class="workspace-card"><h2>Student record</h2><form id="student-form" class="management-form"><input name="id" type="hidden"><label class="admin-field">FULL NAME<input name="name" required maxlength="120"></label><label class="admin-field">PERSONAL ID<input name="student_number" required maxlength="40"></label><label class="admin-field">INSTITUTION<select name="institution" required><option value="">Choose an institution</option>${institutionOptions('',false)}</select></label><label class="admin-field">COLLEGE<select name="college" required></select></label><label class="admin-field">COURSE<select name="course" required></select></label><button class="report-button" type="submit">Save student record →</button></form></section><section class="workspace-card"><h2>Add a college</h2><form id="college-form" class="management-form"><label class="admin-field">INSTITUTION<select name="institution">${institutionOptions('',false)}</select></label><label class="admin-field">COLLEGE NAME<input name="name" required maxlength="100"></label><button class="report-button" type="submit">Add college →</button></form></section><section class="workspace-card"><h2>Add a course</h2><form id="course-form" class="management-form"><label class="admin-field">INSTITUTION<select name="institution">${institutionOptions('',false)}</select></label><label class="admin-field">COLLEGE<select name="college" required>${collegeOptions('MCNP','',false)}</select></label><label class="admin-field">COURSE NAME<input name="name" required maxlength="160"></label><button class="report-button" type="submit">Add course →</button></form></section></div></div>`;
   const studentForm=page.querySelector('#student-form');rosterSelection=bindAcademicSelects(studentForm,()=>colleges);
   const courseForm=page.querySelector('#course-form');courseForm.elements.institution.addEventListener('change',()=>courseForm.elements.college.innerHTML=collegeOptions(courseForm.elements.institution.value,'',false));
   for(const [formId,url] of [['student-form','students'],['college-form','colleges'],['course-form','courses']]){
     const form=page.querySelector('#'+formId);form.addEventListener('submit',async event=>{event.preventDefault();const b=form.querySelector('button');b.disabled=true;try{const input=Object.fromEntries(new FormData(form));const id=input.id;delete input.id;await send(`/api/admin/${url}${id?'/'+id:''}`,input,id?'PATCH':'POST');announce('Saved.');void navigate('roster',false);}catch(e){announce(e.message,true);b.disabled=false;}});
   }
+  await mountStudentDirectory(toolContext(version),page.querySelector('#student-directory'),items=>{students=[...new Map([...students,...items].map(s=>[s.id,s])).values()];});
 }
-async function reports(version){
-  const {events:items}=await api('/api/admin/events');if(version!==screen)return;
-  page.innerHTML=heading('Attendance reports','Export approved attendance. Files are generated in the background and delivered through a temporary private link.')+`<section class="workspace-card"><form id="report-form" class="management-form"><label class="admin-field">EVENT<select name="event_id" required><option value="">Choose event</option>${items.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></label><label class="admin-field">FORMAT<select name="format"><option value="csv">CSV</option><option value="xlsx">Excel</option><option value="pdf">PDF</option><option value="docx">DOCX</option></select></label><button class="report-button" type="submit">Generate report →</button></form><p id="report-state" role="status"></p><a id="report-link" class="download-link" target="_blank" rel="noopener" hidden>Download report</a></section>`;
-  const form=page.querySelector('#report-form');form.addEventListener('submit',async event=>{event.preventDefault();const b=form.querySelector('button'),status=page.querySelector('#report-state'),link=page.querySelector('#report-link');b.disabled=true;link.hidden=true;
-    try{let job=await send('/api/admin/reports',Object.fromEntries(new FormData(form)));const statusUrl=job.status_url;status.textContent='Report queued…';
-      for(let attempt=0;attempt<300;attempt++){await new Promise(r=>setTimeout(r,2000));if(version!==screen)return;job=await api(statusUrl);if(job.status==='failed')throw new Error(job.error);if(job.status==='completed'){status.textContent=`Ready · ${job.record_count} approved check-ins. Download link expires in 10 minutes.`;link.href=job.download_url;link.hidden=false;break;}status.textContent=job.status==='queued'?'Report queued…':'Generating report…';if(attempt===299)throw new Error('Report is still processing. Job ID: '+job.job_id);}
-    }catch(e){status.textContent=e.message;}finally{b.disabled=false;}
-  });
-}
+async function reports(version){await renderReports(toolContext(version));}
 async function displayQr(id){
   clearInterval(qrTimer);qrEvent=id;dialog.showModal();document.querySelector('#event-qr').replaceChildren();
   const refresh=async()=>{try{const data=await api(`/api/admin/events/${id}/qr`);if(qrEvent!==id||!dialog.open)return;document.querySelector('#qr-title').textContent=data.event_name;const container=document.querySelector('#event-qr');container.replaceChildren();if(!window.QRCode)throw new Error('QR generator failed to load. Refresh the page.');new window.QRCode(container,{text:data.token,width:260,height:260,correctLevel:window.QRCode.CorrectLevel.M});document.querySelector('#qr-expiry').textContent='Code expires '+date(data.expires_at);}catch(e){document.querySelector('#qr-expiry').textContent=e.message;}};

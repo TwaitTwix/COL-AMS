@@ -22,6 +22,7 @@ const router = Router();
 import { accountActivity,manualAttendance } from '../controllers/account-activity-controller.js';
 import { reviewSummary,listReviews } from '../controllers/review-center-controller.js';
 import { listActivityLogs } from '../controllers/activity-logs-controller.js';
+import { studentDirectory } from '../controllers/student-directory-controller.js';
 for(const name of ['userId','studentId','eventId','attendanceId','incidentId','notificationId'])router.param(name,(_req,_res,next,value)=>{
   try{validate(z.string().uuid(),value);next();}catch(error){next(error);}
 });
@@ -50,6 +51,7 @@ router.patch('/devices/:incidentId/review',...officerAccess,reviewDevice);
 router.patch('/notifications/:notificationId/read',...officerAccess,readNotification);
 router.patch("/users/:userId", ...officerAccess, updateManagedUser);
 router.get("/students", ...officerAccess, listStudents);
+router.get('/student-directory',...officerAccess,studentDirectory);
 router.post("/students", ...officerAccess, createStudent);
 router.patch("/students/:studentId", ...officerAccess, updateStudent);
 router.patch("/students/:studentId/archive", ...officerAccess, archiveStudent);

@@ -30,6 +30,7 @@ test('hosted reports complete and private downloads contain each expected format
         if(job.status==='completed')break;
       }
       assert.equal(job.status,'completed',`${format} did not finish`);assert.equal(job.record_count,0);
+      assert.ok(job.preview_url);const preview=await fetch(job.preview_url);assert.ok(preview.ok);assert.equal(Buffer.from(await preview.arrayBuffer()).subarray(0,4).toString(),'%PDF');
       const download=await fetch(job.download_url);assert.ok(download.ok);const bytes=Buffer.from(await download.arrayBuffer());
       if(format==='pdf')assert.equal(bytes.subarray(0,4).toString(),'%PDF');
       if(format==='xlsx'||format==='docx')assert.equal(bytes.subarray(0,2).toString(),'PK');

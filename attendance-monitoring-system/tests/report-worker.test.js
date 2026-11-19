@@ -13,6 +13,7 @@ test('report worker generates every file format after deployment dependency chan
     });
     assert.equal(result.ok,true,result.error);assert.equal(result.recordCount,0);
     const bytes=Buffer.from(result.bytes);assert.ok(bytes.length>20);
+    const preview=Buffer.from(result.previewBytes||result.bytes);assert.equal(preview.subarray(0,4).toString(),'%PDF');
     if(format==='pdf')assert.equal(bytes.subarray(0,4).toString(),'%PDF');
     if(format==='xlsx'||format==='docx')assert.equal(bytes.subarray(0,2).toString(),'PK');
     if(format==='csv')assert.match(bytes.toString(),/Student number/);

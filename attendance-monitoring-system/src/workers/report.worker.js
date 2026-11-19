@@ -197,7 +197,8 @@ try {
   const rows = await fetchReportRows();
   const output = await builders[workerData.format](rows, workerData.eventId);
   const transferable = Uint8Array.from(output);
-  parentPort.postMessage({ ok: true, bytes: transferable, recordCount: rows.length }, [transferable.buffer]);
+  const preview=workerData.format==='pdf'?null:Uint8Array.from(await buildPdf(rows,workerData.eventId));
+  parentPort.postMessage({ ok: true, bytes: transferable, previewBytes:preview, recordCount: rows.length }, preview?[transferable.buffer,preview.buffer]:[transferable.buffer]);
 } catch (error) {
   parentPort.postMessage({ ok: false, error: error?.message || "Report build failed" });
 }

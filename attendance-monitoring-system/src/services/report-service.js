@@ -51,7 +51,7 @@ function runWorker(format, eventId) {
     worker.once("message", (message) => {
       clearTimeout(timeout);
       settled = true;
-      if (message.ok) resolve({ buffer: Buffer.from(message.bytes), recordCount: message.recordCount });
+      if (message.ok) resolve({ buffer: Buffer.from(message.bytes), previewBuffer:Buffer.from(message.previewBytes||message.bytes), recordCount: message.recordCount });
       else reject(new Error(message.error || "Report generation failed"));
     });
     worker.once("error", (error) => {
@@ -117,7 +117,7 @@ async function processJob(id) {
   if (!job) return;
 
   try {
-    const { buffer: output, recordCount } = await runWorker(job.format, job.event_id);
+    const { buffer: output, previewBuffer, recordCount } = await runWorker(job.format, job.event_id);
     const { extension, contentType } = formats[job.format];
     const objectPath = `${job.id}.${extension}`;
     const { error: uploadError } = await reportSupabase.storage
@@ -125,9 +125,14 @@ async function processJob(id) {
       .upload(objectPath, output, { contentType, upsert: true });
     if (uploadError) throw uploadError;
 
+    const previewPath=job.format==='pdf'?objectPath:`${job.id}.preview.pdf`;
+    if(job.format!=='pdf'){
+      const {error:previewError}=await reportSupabase.storage.from(env.ATTENDANCE_REPORTS_BUCKET).upload(previewPath,previewBuffer,{contentType:'application/pdf',upsert:true});
+      if(previewError)throw previewError;
+    }
     const finishedAt = new Date().toISOString();
     const { error: saveError } = await reportSupabase.from("report_jobs").update({
-      status: "completed", file_path: objectPath, record_count: recordCount,
+      status: "completed", file_path: objectPath, preview_path:previewPath, record_count: recordCount,
       error: null, updated_at: finishedAt, completed_at: finishedAt,
     }).eq("id", job.id);
     if (saveError) throw saveError;
@@ -209,7 +214,7 @@ export async function enqueueReport({ event_id, format }, requestedBy) {
 export async function getReportJob(id) {
   ensureReportConfiguration();
   const { data: job, error } = await reportSupabase.from("report_jobs")
-    .select("id, event_id, format, status, record_count, error, created_at, updated_at, file_path, started_at")
+    .select("id, event_id, format, status, record_count, error, created_at, updated_at, file_path, preview_path, started_at")
     .eq("id", id)
     .maybeSingle();
   if (error) throw httpError(503, "Unable to read report job status");
@@ -229,7 +234,7 @@ export async function getReportJob(id) {
     if(job.status==='queued')scheduleJob(job.id);
   }
 
-  let signedUrl;
+  let signedUrl,previewUrl;
   if (job.status === "completed" && job.file_path) {
     const { data, error: signError } = await reportSupabase.storage
       .from(env.ATTENDANCE_REPORTS_BUCKET)
@@ -239,6 +244,12 @@ export async function getReportJob(id) {
       throw httpError(500, "Report is ready, but a download link could not be created");
     }
     signedUrl = data.signedUrl;
+    const previewPath=job.preview_path||(job.format==='pdf'?job.file_path:null);
+    if(previewPath){
+      const {data:preview,error:previewError}=await reportSupabase.storage.from(env.ATTENDANCE_REPORTS_BUCKET).createSignedUrl(previewPath,SIGNED_URL_TTL_SECONDS);
+      if(previewError)throw httpError(503,'Unable to create the report preview link');
+      previewUrl=preview.signedUrl;
+    }
   }
-  return { ...publicJob(job), ...(signedUrl ? { download_url: signedUrl, expires_in_seconds: SIGNED_URL_TTL_SECONDS } : {}) };
+  return { ...publicJob(job), ...(signedUrl ? { download_url: signedUrl, preview_url:previewUrl, expires_in_seconds: SIGNED_URL_TTL_SECONDS } : {}) };
 }
