@@ -1,6 +1,7 @@
 import { bindAcademicSelects } from './academic-selects.js';
 import { bindRoleSearch } from './role-search.js';
 import { renderLogs,renderTracker,renderManualAttendance } from './admin-tools.js';
+import { renderReviewCenter } from './review-center.js';
 import { requestDecisionNote } from './decision-dialog.js';
 const page=document.querySelector('#page-content');
 const nav=document.querySelector('#workspace-nav');
@@ -12,6 +13,7 @@ let notificationTimer=null, knownNotifications=null;
 let users=[],students=[],events=[],colleges=[];
 let rosterSelection=null;
 let cameraResize=null;
+let reviewCategory='notifications';
 const adminRoles=['main_admin','admin','col_officer'];
 const isAdmin=()=>adminRoles.includes(session?.role);
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -36,12 +38,14 @@ async function stopCamera(){
 }
 async function navigate(name,push=true){
   const version=++screen;currentPage=name;clearInterval(refreshTimer);refreshTimer=null;
+  document.querySelectorAll('.review-details').forEach(d=>d.close());
   await stopCamera();if(version!==screen||!session)return;
   if(push&&location.pathname!=='/')history.pushState({},'','/');
   nav.querySelectorAll('button').forEach(b=>{b.classList.toggle('active',b.dataset.page===name);b.setAttribute('aria-current',b.dataset.page===name?'page':'false');});
   page.innerHTML='<p class="muted">Loading workspace…</p>';
   try{
     if(name==='dashboard')await (isAdmin()?adminDashboard(version):studentDashboard(version));
+    else if(name==='reviews'&&isAdmin())await renderReviewCenter(toolContext(version),reviewCategory);
     else if(name==='logs'&&isAdmin())await renderLogs(toolContext(version));
     else if(name==='tracker'&&isAdmin())await renderTracker(toolContext(version));
     else if(name==='manual'&&isAdmin())await renderManualAttendance(toolContext(version));
@@ -56,12 +60,12 @@ async function navigate(name,push=true){
 }
 function toolContext(version){return {page,api,send,esc,date,heading,announce,current:()=>version===screen};}
 function setNav(){
-  const entries=isAdmin()?[['dashboard','Overview & reviews'],['logs','Activity logs'],['tracker','Account tracker'],['manual','Manual attendance'],['verifications','User verifications'],['events','Events & geofencing'],['roster','Students & colleges'],['reports','Attendance reports'],...(session.role==='main_admin'?[['roles','Manage role access']]:[])]:[['dashboard','Campus events'],['history','My attendance']];
+  const entries=isAdmin()?[['dashboard','Overview'],['reviews','Review center'],['logs','Activity logs'],['tracker','Account tracker'],['manual','Manual attendance'],['verifications','User verifications'],['events','Events & geofencing'],['roster','Students & colleges'],['reports','Attendance reports'],...(session.role==='main_admin'?[['roles','Manage role access']]:[])]:[['dashboard','Campus events'],['history','My attendance']];
   nav.innerHTML=entries.map(([key,label])=>`<button type="button" data-page="${key}">${label}</button>`).join('');
 }
 window.addEventListener('app:session',event=>{
   const previous=session;session=event.detail;
-  if(!session){screen++;aborter.abort();aborter=new AbortController();clearInterval(refreshTimer);clearInterval(qrTimer);clearInterval(notificationTimer);knownNotifications=null;void stopCamera();dialog.close();document.querySelectorAll('.decision-dialog').forEach(d=>d.close());page.replaceChildren();return;}
+  if(!session){screen++;aborter.abort();aborter=new AbortController();clearInterval(refreshTimer);clearInterval(qrTimer);clearInterval(notificationTimer);knownNotifications=null;void stopCamera();dialog.close();document.querySelectorAll('.decision-dialog,.review-details').forEach(d=>d.close());page.replaceChildren();return;}
   if(previous?.user.id===session.user.id&&previous.role===session.role)return;
   setNav();
   clearInterval(notificationTimer);
@@ -162,14 +166,9 @@ async function scanEvent(event,version){
 
 async function getUsers(){const data=await api('/api/admin/users');users=data.users;return users;}
 async function adminDashboard(version){
-  const [security]=await Promise.all([api('/api/admin/security'),getUsers()]);if(version!==screen)return;
-  const identity=id=>esc(users.find(u=>u.user_id===id)?.full_name||users.find(u=>u.user_id===id)?.email||id||'Unknown');
-  page.innerHTML=heading('Attendance, with accountability.','Review registrations and attendance decisions. Open Activity logs or Account tracker for detailed records.')+
-    `<div class="summary-grid"><div class="summary-tile"><small>REGISTRATION REQUESTS</small><strong>${users.filter(u=>u.approval_status==='pending').length}</strong><span>Waiting for identity review</span></div><div class="summary-tile"><small>DEVICE INCIDENTS</small><strong>${security.incidents.filter(i=>i.status==='open').length}</strong><span>Changed or shared browsers</span></div><div class="summary-tile"><small>ATTENDANCE TO REVIEW</small><strong>${security.attendance.length}</strong><span>Excluded from attendance percentages</span></div></div>
-    <section class="workspace-card"><h2>Notifications <span class="count-pill">${security.notifications.filter(n=>!n.read_at).length} unread</span></h2><div class="notification-list">${security.notifications.length?security.notifications.map(n=>`<article class="review-row"><div><strong>${identity(n.user_id)}</strong><p>${esc(n.message)}</p><small>${esc(date(n.created_at))}</small></div>${n.read_at?'<span class="muted">Read</span>':`<button class="small-action" data-read-notification="${n.id}">Mark read</button>`}</article>`).join(''):'<p class="muted">No notifications.</p>'}</div></section>
-    <section class="workspace-card"><h2>Attendance requiring a decision</h2>${security.attendance.length?security.attendance.map(a=>`<article class="review-row"><div><strong>${esc(a.students?.name)} · ${esc(a.events?.name)}</strong><p>Potential malicious attendance · ${esc(a.risk_reasons.join(', '))}</p><small>${a.distance_from_venue_meters} m from venue · Browser ${esc(a.device_hash?.slice(0,12))}</small></div><div class="row-actions"><button class="small-action" data-review-attendance="${a.id}" data-decision="approved">Accept</button><button class="small-action danger" data-review-attendance="${a.id}" data-decision="rejected">Reject</button></div></article>`).join(''):'<p class="muted">No attendance awaiting review.</p>'}</section>
-    <section class="workspace-card"><h2>Device incidents</h2>${security.incidents.length?security.incidents.map(i=>`<article class="review-row"><div><strong>${identity(i.user_id)}</strong><p>${i.changed_device?'Changed browser device. ':''}${i.shared_device?'Browser used by another account. ':''}Penalty: ${i.penalty_points} point.</p><small>Device ${esc(i.device_hash.slice(0,12))} · ${esc(i.status)} · ${esc(date(i.created_at))}</small></div>${i.status==='open'?`<div class="row-actions"><button class="small-action" data-review-device="${i.id}" data-decision="trusted">Trust this browser</button><button class="small-action" data-review-device="${i.id}" data-decision="dismissed">Dismiss alert</button></div>`:''}</article>`).join(''):'<p class="muted">No device incidents.</p>'}</section>
-    `;
+  const counts=await api('/api/admin/review-summary');if(version!==screen)return;
+  page.innerHTML=heading('Campus overview','Your review queues at a glance. Open a card to search, review details, and make decisions.')+
+    `<div class="summary-grid">${[['notifications','UNREAD NOTIFICATIONS','Messages that need your attention'],['attendance','ATTENDANCE TO REVIEW','Pending verification decisions'],['devices','OPEN DEVICE INCIDENTS','Changed or shared browser devices']].map(([key,label,copy])=>`<button type="button" class="summary-tile" data-open-review="${key}"><small>${label}</small><strong>${counts[key]}</strong><span>${copy}</span><span>Open Review center →</span></button>`).join('')}</div><section class="workspace-card"><h2>User registrations</h2><p class="muted">${counts.registrations} account(s) awaiting verification.</p><button type="button" class="secondary-button" data-open-verifications>View registration requests →</button></section>`;
   refreshTimer=setInterval(()=>{if(!document.hidden&&!document.querySelector('dialog[open]'))void navigate('dashboard',false);},60000);
 }
 async function verifications(version){
@@ -225,6 +224,8 @@ document.querySelector('#close-qr').addEventListener('click',()=>dialog.close())
 document.querySelector('#rotate-qr').addEventListener('click',async()=>{if(!qrEvent)return;try{await send(`/api/admin/events/${qrEvent}/qr/rotate`,{});const id=qrEvent;dialog.close();await displayQr(id);announce('Previous codes revoked.');}catch(e){announce(e.message,true);}});
 page.addEventListener('click',async event=>{
   const b=event.target.closest('button');if(!b||b.disabled)return;
+  if(b.dataset.openReview&&isAdmin()){reviewCategory=b.dataset.openReview;void navigate('reviews');return;}
+  if(b.hasAttribute('data-open-verifications')&&isAdmin()){void navigate('verifications');return;}
   if(b.dataset.trackUser&&isAdmin()){const version=++screen;clearInterval(refreshTimer);await stopCamera();currentPage='tracker';try{await renderTracker(toolContext(version),b.dataset.trackUser);}catch(e){announce(e.message,true);}return;}
   if(b.hasAttribute('data-retry')){void navigate(currentPage,false);return;}
   if(b.hasAttribute('data-back-events')){void navigate('dashboard');return;}

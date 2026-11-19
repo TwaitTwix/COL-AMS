@@ -93,3 +93,16 @@ button:focus-visible, a:focus-visible { outline: 2px solid #f5f5ee; outline-offs
 .location-evidence { display: grid; gap: .5rem; }
 .manual-selection { padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; }
 .management-form textarea { width: 100%; min-height: 6rem; padding: .875rem; resize: vertical; font: inherit; color: var(--ink); background: #121212; border: 1px solid #656565; border-radius: .5rem; }
+.summary-tile[data-open-review] { text-align: left; color: var(--ink); cursor: pointer; }
+.summary-tile[data-open-review]:hover { border-color: var(--accent); }
+.review-tabs { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1.5rem; }
+.review-tabs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.review-filters { display: grid; grid-template-columns: minmax(0,1fr) minmax(10rem,.45fr) auto; gap: 1rem; align-items: end; }
+.review-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.review-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.5rem; }
+.review-details { width: min(38rem,calc(100% - 2rem)); }
+.review-details .card-heading { display: flex; align-items: flex-start; justify-content: space-between; }
+.review-detail-content { overflow-wrap: anywhere; line-height: 1.75; }
+.review-details textarea { font: inherit; width: 100%; min-height: 6rem; padding: .875rem; background: #121212; color: var(--ink); border: 1px solid #656565; border-radius: .5rem; resize: vertical; }
+.review-details .row-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+@media(max-width:760px) { .review-filters { grid-template-columns: minmax(0,1fr); } .review-tabs { display: grid; grid-template-columns: minmax(0,1fr); } .review-details .row-actions { flex-direction: column; } }
