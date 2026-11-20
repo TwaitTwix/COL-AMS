@@ -27,6 +27,7 @@ export async function listManagedUsers(_req, res, next) {
     const { data, error } = await supabase
       .from("user_profiles")
       .select("user_id, email, full_name, role, student_id, created_at,personal_id,institution,college,course,approval_status,penalty_points,review_note")
+      .is("retired_at", null)
       .order("created_at", { ascending: false });
     if (error) throw error;
     res.status(200).json({ users: data || [] });
@@ -56,11 +57,12 @@ export async function updateManagedUser(req, res, next) {
     let studentId=input.student_id;
     const { data: previous, error: previousError } = await supabase
       .from("user_profiles")
-      .select("user_id, role, student_id")
+      .select("user_id, role, student_id, retired_at")
       .eq("user_id", userId)
       .maybeSingle();
     if (previousError) throw previousError;
     if (!previous) throw httpError(404, "Account not found");
+    if(previous.retired_at)throw httpError(409,"Retired accounts cannot be changed. Use the new registration instead");
     studentId=studentId===undefined?(previous.student_id||null):studentId;
     if(previous.role==='main_admin')throw httpError(403,'The main administrator role cannot be changed here');
     const {data:target,error:targetError}=await supabase.from('user_profiles').select('approval_status').eq('user_id',userId).single();

@@ -93,7 +93,10 @@ export async function selfCheckIn(req,res,next) {
 export async function reviewRegistration(req,res,next){
   try{
     const userId=validate(uuid,req.params.userId);const input=validate(reviewSchema,req.body);
+    const {data:profile,error:profileError}=await supabase.from('user_profiles').select('retired_at,personal_id').eq('user_id',userId).single();check(profileError);
+    if(profile.retired_at)throw fail(409,'This account is retired. Review its new registration instead');
     if(input.decision==='approved'){
+      if(profile.personal_id){const {data:archived,error:archivedError}=await supabase.from('students').select('id').ilike('student_number',profile.personal_id.replace(/[\\%_]/g,'\\$&')).not('archived_at','is',null).maybeSingle();check(archivedError);if(archived)throw fail(409,'Restore the archived student record for this personal ID before approving the new account. Previous attendance will remain in its history.');}
       const {data,error}=await supabase.auth.admin.getUserById(userId);
       if(error)throw fail(503,'Unable to verify the registration email');
       if(!data.user?.email_confirmed_at)throw fail(400,'The user must verify their email before you approve the account');

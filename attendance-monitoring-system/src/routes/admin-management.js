@@ -23,6 +23,7 @@ import { accountActivity,manualAttendance } from '../controllers/account-activit
 import { reviewSummary,listReviews,previewBulkAttendance,approveBulkAttendance } from '../controllers/review-center-controller.js';
 import { listActivityLogs } from '../controllers/activity-logs-controller.js';
 import { studentDirectory } from '../controllers/student-directory-controller.js';
+import { releaseStudentEmail } from '../controllers/email-release-controller.js';
 for(const name of ['userId','studentId','eventId','attendanceId','incidentId','notificationId'])router.param(name,(_req,_res,next,value)=>{
   try{validate(z.string().uuid(),value);next();}catch(error){next(error);}
 });
@@ -54,6 +55,7 @@ router.patch('/notifications/:notificationId/read',...officerAccess,readNotifica
 router.patch("/users/:userId", ...officerAccess, updateManagedUser);
 router.get("/students", ...officerAccess, listStudents);
 router.get('/student-directory',...officerAccess,studentDirectory);
+router.post('/students/:studentId/release-email',...officerAccess,...requireRoles('admin','main_admin'),releaseStudentEmail);
 router.post("/students", ...officerAccess, createStudent);
 router.patch("/students/:studentId", ...officerAccess, updateStudent);
 router.patch("/students/:studentId/archive", ...officerAccess, archiveStudent);

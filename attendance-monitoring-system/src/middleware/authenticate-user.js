@@ -8,18 +8,19 @@ function sendError(res, status, message) {
 async function loadOrCreateProfile(user) {
   const { data: existing, error: selectError } = await supabase
     .from("user_profiles")
-    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course, privacy_version, privacy_accepted_at")
+    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course, privacy_version, privacy_accepted_at, retired_at")
     .eq("user_id", user.id)
     .maybeSingle();
   if (selectError) throw selectError;
   if (existing) {
+    if(existing.retired_at)return existing;
     const email = user.email || null;
     if (existing.email !== email) {
       const { data: updated, error: updateError } = await supabase
         .from("user_profiles")
         .update({ email })
         .eq("user_id", user.id)
-        .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course, privacy_version, privacy_accepted_at")
+        .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course, privacy_version, privacy_accepted_at, retired_at")
         .single();
       if (updateError) throw updateError;
       return updated;
@@ -37,7 +38,7 @@ async function loadOrCreateProfile(user) {
 
   const { data: created, error: reloadError } = await supabase
     .from("user_profiles")
-    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course, privacy_version, privacy_accepted_at")
+    .select("user_id, email, full_name, role, student_id, personal_id, institution, college, approval_status, review_note, penalty_points, course, privacy_version, privacy_accepted_at, retired_at")
     .eq("user_id", user.id)
     .single();
   if (reloadError) throw reloadError;
@@ -75,6 +76,7 @@ export async function authenticateUser(req, res, next) {
     }
 
     const profile = await loadOrCreateProfile(user);
+    if(profile.retired_at)return sendError(res,401,'This account has been retired. Register again or contact an administrator.');
     req.authUser = user;
     req.userProfile = profile;
     next();

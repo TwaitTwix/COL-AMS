@@ -1,6 +1,7 @@
 import { bindAcademicSelects } from './academic-selects.js';
 import { bindRoleSearch } from './role-search.js';
 import { renderLogs,renderTracker,renderManualAttendance } from './admin-tools.js';
+import { confirmEmailRelease } from './email-release-dialog.js';
 import { mountStudentDirectory } from './student-directory.js';
 import { createNotificationBell } from './notification-bell.js';
 import { renderReports } from './report-page.js';
@@ -219,7 +220,7 @@ async function roster(version){
   for(const [formId,url] of [['student-form','students'],['college-form','colleges'],['course-form','courses']]){
     const form=page.querySelector('#'+formId);form.addEventListener('submit',async event=>{event.preventDefault();const b=form.querySelector('button');b.disabled=true;try{const input=Object.fromEntries(new FormData(form));const id=input.id;delete input.id;await send(`/api/admin/${url}${id?'/'+id:''}`,input,id?'PATCH':'POST');announce('Saved.');void navigate('roster',false);}catch(e){announce(e.message,true);b.disabled=false;}});
   }
-  await mountStudentDirectory(toolContext(version),page.querySelector('#student-directory'),items=>{students=[...new Map([...students,...items].map(s=>[s.id,s])).values()];});
+  await mountStudentDirectory({...toolContext(version),canReleaseEmail:['admin','main_admin'].includes(session.role)},page.querySelector('#student-directory'),items=>{students=[...new Map([...students,...items].map(s=>[s.id,s])).values()];});
 }
 async function reports(version){await renderReports(toolContext(version));}
 async function displayQr(id){
@@ -233,6 +234,7 @@ document.querySelector('#rotate-qr').addEventListener('click',async()=>{if(!qrEv
 page.addEventListener('click',async event=>{
   const b=event.target.closest('button');if(!b||b.disabled)return;
   if(b.hasAttribute('data-prepare-attendance')){b.disabled=true;try{await send('/api/student/attendance-profile',{});void navigate('campus');}catch(e){announce(e.message,true);b.disabled=false;}return;}
+  if(b.dataset.releaseEmail){await confirmEmailRelease({student:b.dataset.releaseEmail,user:b.dataset.releaseUser,email:b.dataset.releaseAddress,send,announce,onDone:()=>navigate('roster',false)});return;}
   if(b.dataset.openReview&&isAdmin()){reviewCategory=b.dataset.openReview;void navigate('reviews');return;}
   if(b.hasAttribute('data-open-verifications')&&isAdmin()){void navigate('verifications');return;}
   if(b.dataset.trackUser&&isAdmin()){const version=++screen;clearInterval(refreshTimer);await stopCamera();currentPage='tracker';try{await renderTracker(toolContext(version),b.dataset.trackUser);}catch(e){announce(e.message,true);}return;}
