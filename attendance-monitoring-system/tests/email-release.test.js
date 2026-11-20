@@ -10,15 +10,21 @@ test('email release requires an exact confirmation, identity, and reason',()=>{
 });
 test('retirement blocks the old login before Auth soft deletion and completion',async()=>{
   const calls=[];
-  await releaseArchivedEmail(input,{rpc:async(name,args)=>{calls.push(name);return {data:{user_id:input.user,completed:false}};},admin:{deleteUser:async(id,soft)=>{calls.push('auth');assert.equal(id,input.user);assert.equal(soft,true);return {};}}});
+  await releaseArchivedEmail(input,{rpc:async(name,args)=>{calls.push(name);return {data:{user_id:input.user,completed:false}};},admin:{getUserById:async()=>({data:{user:{}}}),deleteUser:async(id,soft)=>{calls.push('auth');assert.equal(id,input.user);assert.equal(soft,true);return {};}}});
   assert.deepEqual(calls,['begin_archived_email_release','auth','finish_archived_email_release']);
 });
 test('failed Auth retirement never releases the personal ID and can be retried',async()=>{
-  const calls=[];await assert.rejects(releaseArchivedEmail(input,{rpc:async name=>{calls.push(name);return {data:{user_id:input.user}};},admin:{deleteUser:async()=>({error:{status:503}})}}),/unfinished/);
+  const calls=[];await assert.rejects(releaseArchivedEmail(input,{rpc:async name=>{calls.push(name);return {data:{user_id:input.user}};},admin:{getUserById:async()=>({data:{user:{}}}),deleteUser:async()=>({error:{status:503}})}}),/unfinished/);
   assert.deepEqual(calls,['begin_archived_email_release']);
-  let deleted=false;await releaseArchivedEmail(input,{rpc:async()=>({data:{completed:true}}),admin:{deleteUser:async()=>{deleted=true;}}});assert.equal(deleted,false);
+  let deleted=false;await releaseArchivedEmail(input,{rpc:async()=>({data:{completed:true}}),admin:{getUserById:async()=>({data:{user:{}}}),deleteUser:async()=>{deleted=true;}}});assert.equal(deleted,false);
 });
 test('invalid preparation prevents Auth changes; unfinished completion reports retry',async()=>{
-  let deleted=false;await assert.rejects(releaseArchivedEmail(input,{rpc:async()=>({error:{code:'P0001',message:'Archive first'}}),admin:{deleteUser:async()=>{deleted=true;}}}),/Archive first/);assert.equal(deleted,false);
-  await assert.rejects(releaseArchivedEmail(input,{rpc:async name=>name.startsWith('begin')?{data:{user_id:input.user}}:{error:{message:'Not deleted'}},admin:{deleteUser:async()=>({error:{status:404}})}}),/unfinished/);
+  let deleted=false;await assert.rejects(releaseArchivedEmail(input,{rpc:async()=>({error:{code:'P0001',message:'Archive first'}}),admin:{getUserById:async()=>({data:{user:{}}}),deleteUser:async()=>{deleted=true;}}}),/Archive first/);assert.equal(deleted,false);
+  await assert.rejects(releaseArchivedEmail(input,{rpc:async name=>name.startsWith('begin')?{data:{user_id:input.user}}:{error:{message:'Not deleted'}},admin:{getUserById:async()=>({data:{user:{}}}),deleteUser:async()=>({error:{status:404}})}}),/unfinished/);
+});
+
+test('retry after Auth retirement skips a second deletion and completes using server confirmation',async()=>{
+  let deleted=false;const args=[];
+  const result=await releaseArchivedEmail(input,{rpc:async(name,params)=>{args.push([name,params]);return name.startsWith('begin')?{data:{user_id:input.user}}:{data:{completed:true}};},admin:{getUserById:async()=>({data:{user:{deleted_at:'2026-11-20T04:40:53Z'}}}),deleteUser:async()=>{deleted=true;}}});
+  assert.equal(deleted,false);assert.equal(result.completed,true);assert.equal(args[1][1].p_auth_retired,true);
 });

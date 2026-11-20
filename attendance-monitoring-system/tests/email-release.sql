@@ -18,9 +18,9 @@ begin
  caught:=false;begin update public.user_profiles set role='admin' where user_id=uid;exception when raise_exception then caught:=true;end;if not caught then raise exception 'FAIL: retired role reassignment';end if;
  if not exists(select 1 from public.user_profiles where user_id=uid and retired_at is not null and personal_id=pid) then raise exception 'FAIL: block pending retirement without freeing ID';end if;
  caught:=false;begin perform public.finish_archived_email_release(actor,uid);exception when raise_exception then caught:=true;end;if not caught then raise exception 'FAIL: release before Auth retirement';end if;
- -- Simulate the documented Auth soft-delete outcome in rollback-only fixtures.
- update auth.users set deleted_at=now(),email='retired-'||login_email where id=uid;
- r:=public.finish_archived_email_release(actor,uid);
+ -- Run completion with the same restricted role used by the deployed server.
+ perform set_config('role','service_role',true);
+ r:=public.finish_archived_email_release(actor,uid,true);
  if not exists(select 1 from public.user_profiles where user_id=uid and email_release_completed_at is not null and student_id is null and personal_id is null and retired_student_id=sid and retired_personal_id=pid and email=login_email) then raise exception 'FAIL: identity release/history mapping';end if;
  if not exists(select 1 from public.attendance_logs where user_id=uid and student_id=sid and status='approved') then raise exception 'FAIL: attendance history changed';end if;
  r:=public.begin_archived_email_release(actor,sid,uid,login_email,'Repeat');if r->>'completed'<>'true' then raise exception 'FAIL: retry completed release';end if;
